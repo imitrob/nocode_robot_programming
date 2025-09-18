@@ -104,12 +104,16 @@ class TeleoperationByDrawing(HandListener):
 
     def teleop_step(self):
         if self.is_hand_visible(self.teleop_hand):
+            self.pause = True # stops the execution
+
             trigger = self.is_gesture_activated(self.teleop_hand, self.link_gesture)
             self.teleop_position_compute(trigger)
         else:
             self.is_drawing = False
         
         if self.is_hand_visible(self.teleop_aux_hand):
+            self.pause = True # stops the execution
+
             grab_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).grab_strength
 
             # OPTION: Close gripper proportionally with grab strength:

@@ -12,5 +12,5 @@ class StateDecision():
         '''
         self.model = None # Update
 
-    def __call__(self, image: np.ndarray, timestep: float) -> int: # returns a branch (y) or -1 as anomaly
-        return 0
+    def __call__(self, image: np.ndarray, timestep: float) -> tuple[bool, int]: # returns a branch (y) or -1 as anomaly
+        return False, 0

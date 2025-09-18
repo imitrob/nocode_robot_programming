@@ -6,8 +6,8 @@ from spatialmath import UnitQuaternion
 import spatialmath as sm 
 
 # >>>>>> EDIT THIS to your by-id symlink (from ls -l /dev/input/by-id)
-# DEVICE_PATH = "/dev/input/by-id/usb-Logitech_Wireless_Gamepad_F710_B62E92A9-event-joystick"
-DEVICE_PATH = "/dev/input/by-id/usb-Logitech_Logitech_Cordless_RumblePad_2-event-joystick"
+DEVICE_PATH = "/dev/input/by-id/usb-Logitech_Wireless_Gamepad_F710_B62E92A9-event-joystick"
+# DEVICE_PATH = "/dev/input/by-id/usb-Logitech_Logitech_Cordless_RumblePad_2-event-joystick"
 
 BUTTONS = {
     ecodes.BTN_A:     "A",
@@ -177,10 +177,7 @@ class JoystickConnector():
             self.feedback_gripper = "open"
             
         if s.buttons.get("X", 0) > 0:
-            self.risk_flag = 1
-            self.joy_last_clicked = True
-        if s.buttons.get("X", 0) == 0 and self.joy_last_clicked == True:
-            self.risk_flag = 0
+            self.pause = True
 
 
 if __name__ == "__main__":
