@@ -10,9 +10,11 @@ import spatialmath as sm
 import rclpy
 import threading
 
-from playsound import playsound
-
 import numpy as np
+from gesture_detector.hand_processing.hand_listener import HandListener
+from nocode_robot_programming.feedback_sound import sound_thread
+
+FREQ = 20 # Hz
 
 def transform_leap_to_scene(data, scale=1.0, start=[0.5, 0.0, 0.2]):
     x, y, z = data[0], data[1], data[2]
@@ -31,111 +33,104 @@ def transform_leap_to_scene(data, scale=1.0, start=[0.5, 0.0, 0.2]):
 
     return data
 
-class Servo():
+class TeleoperationByDrawing(HandListener):
     def __init__(self,
-                 node,
                  teleop_hand: str = "l", 
-                 aux_hand: str = "r",
+                 teleop_aux_hand: str = "r",
                  link_gesture: str = "grab_strength",
                  teleop_scale: float = 1.0,
                  teleop_rotate_eef: bool = True,
                  ):
         """
-        Panda:
-            self.move_to_pose(position, orientation) # position (float[3]), orientation (float[4])
-            self.grasp(width, speed, force, epsilon_inner, epsilon_outer)
-
         Args:
             teleop_hand (str, optional): Hand used to teleoperate. 
                 Defaults to "l" left hand. "r" for right hand. "" to disable teleop.
-            aux_hand (str, optional): Hand used for auxiliary action (gripper open/close).
+            teleop_aux_hand (str, optional): Hand used for auxiliary action (gripper open/close).
                 Defaults to "l" left hand. "r" for right hand. "" to disable aux action.
             link_gesture (str, optional): Gesture to trigger teleoperation
                 Defaults to "grab_strength" - Grab gesture triggers teleoperation.
             teleop_rotate_eef (bool, optional): Reads angle of hand and rotates 7th joint.
                 Defaults to True.
         """
-        super(Servo, self).__init__()
-
-        self.node = node
-
+        super(TeleoperationByDrawing, self).__init__()
         self.teleop_hand = teleop_hand 
-        self.aux_hand = aux_hand
+        self.teleop_aux_hand = teleop_aux_hand
         
         self.link_gesture = link_gesture
         self.teleop_scale = teleop_scale
         self.teleop_rotate_eef = teleop_rotate_eef
         
-        self.scene_anchor_save = [0.4, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0] # x,y,z,qx,qy,qz,qw [m] wrt. robot base
-        self.tgoal_pose = [0.4, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0]
+        self.scene_anchor_save = None #[0.4, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0] # x,y,z,qx,qy,qz,qw [m] wrt. robot base
         self.eef_rot = 0.0
         self.teleop_trigger = False
 
-        play_thread = threading.Thread(target=self.playontrigger, args=(), daemon=True)
+        play_thread = threading.Thread(target=sound_thread, args=(self,), daemon=True)
         play_thread.start()
 
+    def teleop_has_control(self):
+        return (self.teleop_trigger and self.is_hand_visible(self.teleop_hand))
+            
 
     def is_hand_visible(self, hand):
-        if (self.node.hand_frames and 
-            self.node.hand_frames[-1] and
-            getattr(self.node.hand_frames[-1],hand) and
-            getattr(self.node.hand_frames[-1],hand).visible):
+        if (self.hand_frames and 
+            self.hand_frames[-1] and
+            getattr(self.hand_frames[-1],hand) and
+            getattr(self.hand_frames[-1],hand).visible):
             return True
         return False
 
     def is_gesture_activated(self, hand, gesture):
         if self.is_hand_visible(hand):
-            if getattr(getattr(self.node.hand_frames[-1],hand),gesture) > 0.8:
+            if getattr(getattr(self.hand_frames[-1],hand),gesture) > 0.8:
                 return True
         return False
 
-    def playontrigger(self):
-        while True:
-            if self.teleop_trigger and self.is_hand_visible(self.teleop_hand):
-                playsound('/usr/share/sounds/Yaru/stereo/bell.oga', block=True)
-            else:
-                time.sleep(0.5)
+    def teleop_start(self):
+        self.teleop_thr = threading.Thread(target=self.teleop_thread_start, daemon=True)
+        self.teleop_thr.start()
 
-    def teleoperation_step(self, trigger):
-        goal_pose = transform_leap_to_scene(
-            getattr(self.node.hand_frames[-1],self.teleop_hand).palm_position(),
-            self.teleop_scale)
-        
-        self.node.move_to_pose(position=goal_pose, orientation=[1.0, 0.0, 0.0, 0.0], speed_factor=0.05)
+    def teleop_stop(self):
+        self.teleop_thr.join(timeout=1)
 
-    def step(self):
+    def teleop_thread_start(self):
+        self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]
+
+        try:
+            while True:
+                self.teleop_step()
+                time.sleep(1./FREQ)
+        except KeyboardInterrupt:
+            pass
+
+    def teleop_step(self):
         if self.is_hand_visible(self.teleop_hand):
             trigger = self.is_gesture_activated(self.teleop_hand, self.link_gesture)
-            self.teleoperation_step(trigger)
+            self.teleop_position_compute(trigger)
         else:
             self.is_drawing = False
         
-        if self.is_hand_visible(self.aux_hand):
-            grab_strength = getattr(self.node.hand_frames[-1], self.aux_hand).grab_strength
+        if self.is_hand_visible(self.teleop_aux_hand):
+            grab_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).grab_strength
 
             # OPTION: Close gripper proportionally with grab strength:
             # self.gripper.grasp(width=(1.-grab_strength)/1, speed=0.2, force=10, epsilon_inner=0.04, epsilon_outer=0.04)
             if grab_strength > 0.8:
-                if not self.node.gripper.read_once().is_grasped:
-                    self.node.gripper.grasp(width=0, speed=0.2, force=10, epsilon_inner=0.04, epsilon_outer=0.04)
+                if not self.gripper.read_once().is_grasped:
+                    self.feedback_gripper = "grasp"
             elif grab_strength < 0.2:
-                self.node.gripper.move(0.08, 0.2)
+                self.feedback_gripper = "open"
 
-
-class TeleoperationByDrawing(Servo):
-    """Live mode is enabled only, when link_gesture is activated.
-    """    
-    def teleoperation_step(self, trigger):
+    def teleop_position_compute(self, trigger):
         self.teleop_trigger = trigger
         if trigger:
             
             mouse3d = transform_leap_to_scene(
-                getattr(self.node.hand_frames[-1],self.teleop_hand).palm_pose_list(),
+                getattr(self.hand_frames[-1],self.teleop_hand).palm_pose_list(),
                 self.teleop_scale
             )
 
             if self.teleop_rotate_eef:
-                x,y = self.node.hand_frames[-1].r.direction()[0:2]
+                x,y = self.hand_frames[-1].r.direction()[0:2]
                 angle = np.arctan2(y,x)
 
             if not self.is_drawing: # init anchor
@@ -162,33 +157,32 @@ class TeleoperationByDrawing(Servo):
             goal_pose[3],goal_pose[4],goal_pose[5],goal_pose[6] = UnitQuaternion(rot).vec_xyzs
             
             # Save cage
-            goal_pose = np.clip(
-                goal_pose,
-                #        [x  , y   , z   , no limits on rotation]
-                np.array([0.2, -0.4, 0.03, -10, -10, -10, -10]),
-                np.array([0.6,  0.4, 0.4,   10,  10,  10,  10])
-            )
-            self.tgoal_pose = goal_pose
+            # goal_pose = np.clip(
+            #     goal_pose,
+            #     #        [x  , y   , z   , no limits on rotation]
+            #     np.array([0.2, -0.4, 0.03, -10, -10, -10, -10]),
+            #     np.array([0.6,  0.4, 0.4,   10,  10,  10,  10])
+            # )
+
+            current_position = self.panda.get_position() 
+            currect_orientation = self.panda.get_orientation(scalar_first=False)
+            self.feedback[0] = goal_pose[0] - current_position[0]
+            self.feedback[1] = goal_pose[1] - current_position[1]
+            self.feedback[2] = goal_pose[2] - current_position[2]
+            self.feedback[3] = goal_pose[3] - currect_orientation[0]
+            self.feedback[4] = goal_pose[4] - currect_orientation[1]
+            self.feedback[5] = goal_pose[5] - currect_orientation[2]
+            self.feedback[6] = goal_pose[6] - currect_orientation[3]
         else:
-            self.scene_anchor_save = self.tgoal_pose
+            self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]  #self.feedback
             self.is_drawing = False
-
-        self.node.move_to_pose(position=(
-            self.tgoal_pose[0], 
-            self.tgoal_pose[1], 
-            self.tgoal_pose[2]), 
-            orientation=[1.0, 0.0, 0.0, 0.0], 
-            speed_factor=0.01
-        )
-
-
 
 def main(args):
     rclpy.init()
 
     teleop = TeleoperationByDrawing(
         teleop_hand = args['teleop_hand'], 
-        aux_hand = args['aux_hand'],
+        teleop_aux_hand = args['teleop_aux_hand'],
         link_gesture = args['link_gesture'],
         teleop_scale = args['teleop_scale'],
         teleop_rotate_eef = args['teleop_rotate_eef'],
@@ -210,7 +204,7 @@ if __name__ == "__main__":
         choices=["l", "r", ""],
     )
     parser.add_argument(
-        "--aux_hand",
+        "--teleop_aux_hand",
         default="l",
         choices=["l", "r", ""],
         help="Hand that opens and closes the gripper."
