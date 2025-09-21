@@ -1,7 +1,7 @@
 
 import numpy as np
 
-class StateDecision():
+class StateDeciderBase():
     def __init__(self):
         self.model = None
 
@@ -14,3 +14,8 @@ class StateDecision():
 
     def __call__(self, image: np.ndarray, timestep: float) -> tuple[bool, int]: # returns a branch (y) or -1 as anomaly
         return False, 0
+    
+
+def evaluate():
+
+    
