@@ -44,11 +44,19 @@ class TrajectoryDataset(Dataset):
         if not self.files:
             raise FileNotFoundError(f"No .npz files found in {self.dir}")
         self.keys = keys or self.default_keys
-        
+    
+    @property
+    def names(self):
+        ''' .../trajectories/new_skill.npz -> new_skill.npz '''
+        return [f.split("/")[-1].split(".")[0] for f in self.files]
+
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, idx):
+        if isinstance(idx, str) and idx in self.names:
+            idx = self.names.index(idx) # idx string -> idx id (int)
+        
         if isinstance(idx, slice):
             return self.__getitems__(idx)
         # lazy, low-RAM reads
@@ -78,7 +86,7 @@ class TrajectoryDataset(Dataset):
             ret.append(self[idx])
         return ret
 
-    def get_image_dataset(self, file_names: list):
+    def get_image_dataset(self, file_names: list, time_indexes = slice(None,None)):
         X = torch.tensor([])
         y = torch.tensor([])
         for file in file_names:
@@ -88,8 +96,8 @@ class TrajectoryDataset(Dataset):
                 label = 0
             idx = self.files.index(f"{self.dir}/{file}.npz")
 
-            X = torch.concatenate([X, self[idx]['img']])
-            y = torch.concatenate([y, torch.tensor([label] * len(self[idx]['img']))])
+            X = torch.concatenate([X, self[idx]['img'][time_indexes]])
+            y = torch.concatenate([y, torch.tensor([label] * len(self[idx]['img'][time_indexes]))])
         return X.squeeze(), y
 
     # ---- quick access helpers ----

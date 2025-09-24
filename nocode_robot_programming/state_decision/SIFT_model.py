@@ -1,6 +1,28 @@
-class SceneMatcher:
-    def __init__(self, method="ORB", max_side=800, nfeatures=2000, ratio=0.75,
-                 homography=True, ransac_thresh=3.0, maxIters=1000, confidence=0.99):
+import cv2
+import numpy as np
+from collections import defaultdict
+from typing import Dict, List, Tuple, Any, Optional
+
+import torch
+
+class StateDeciderSIFT:  # Fits StateDeciderBase interface
+    def __init__(self,
+                 method: str = "SIFT",
+                 max_side: int = 800,
+                 nfeatures: int = 2000,
+                 ratio: float = 0.75,
+                 homography: bool = True,
+                 ransac_thresh: float = 3.0,
+                 maxIters: int = 1000,
+                 confidence: float = 0.99,
+                 min_good: int = 8,
+                 max_refs_per_class: int = 5,
+                 anomaly_percentile: float = 0.10   # 10th percentile as acceptance cutoff
+                 ):
+        """
+        method: 'SIFT' | 'AKAZE' | 'ORB'
+        anomaly_percentile: lower -> stricter (more anomalies), higher -> looser
+        """
         self.method = method.upper()
         self.max_side = max_side
         self.ratio = ratio
@@ -8,36 +30,40 @@ class SceneMatcher:
         self.ransac_thresh = ransac_thresh
         self.maxIters = maxIters
         self.confidence = confidence
+        self.min_good = min_good
+        self.max_refs_per_class = max_refs_per_class
+        self.anomaly_percentile = anomaly_percentile
 
+        # --- feature + matcher setup (reused) ---
         if self.method == "SIFT":
             self.feat = cv2.SIFT_create(nfeatures=nfeatures)
-            # FLANN KD-Tree for float descriptors
-            index_params = dict(algorithm=1, trees=4)  # FLANN_INDEX_KDTREE = 1
+            index_params = dict(algorithm=1, trees=4)  # KD-Tree
             search_params = dict(checks=32)
             self.matcher = cv2.FlannBasedMatcher(index_params, search_params)
             self.norm = cv2.NORM_L2
         elif self.method == "AKAZE":
-            self.feat = cv2.AKAZE_create()  # descriptor is binary by default (MLDB)
-            # FLANN LSH for binary descriptors
-            index_params = dict(algorithm=6,  # FLANN_INDEX_LSH
-                                table_number=12, key_size=20, multi_probe_level=2)
+            self.feat = cv2.AKAZE_create()  # binary MLDB
+            index_params = dict(algorithm=6, table_number=12, key_size=20, multi_probe_level=2)  # LSH
             search_params = dict(checks=64)
             self.matcher = cv2.FlannBasedMatcher(index_params, search_params)
             self.norm = cv2.NORM_HAMMING
         else:  # ORB
             self.feat = cv2.ORB_create(nfeatures=nfeatures, fastThreshold=15, scaleFactor=1.2, nlevels=8)
-            index_params = dict(algorithm=6,  # FLANN_INDEX_LSH
-                                table_number=12, key_size=20, multi_probe_level=2)
+            index_params = dict(algorithm=6, table_number=12, key_size=20, multi_probe_level=2)  # LSH
             search_params = dict(checks=64)
             self.matcher = cv2.FlannBasedMatcher(index_params, search_params)
             self.norm = cv2.NORM_HAMMING
 
-        # Pick the best available robust method
+        # Prefer USAC if available
         self._usac = getattr(cv2, "USAC_FAST", None)
         self._magsac = getattr(cv2, "USAC_MAGSAC", None)
 
-    def _prep(self, img):
-        # to grayscale + downscale, preserving aspect ratio
+        # learned after train()
+        self.refs_by_class: Dict[Any, List[Dict[str, Any]]] = {}
+        self.threshold_by_class: Dict[Any, float] = {}
+
+    # ------------- utils -------------
+    def _prep(self, img: np.ndarray) -> np.ndarray:
         if img.ndim == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         h, w = img.shape[:2]
@@ -46,57 +72,143 @@ class SceneMatcher:
             img = cv2.resize(img, (int(w*s), int(h*s)), interpolation=cv2.INTER_AREA)
         return img
 
-    def similar_scene(self, img1, img2, min_good=8):
-        img1 = self._prep(img1)
-        img2 = self._prep(img2)
+    def _detect(self, img: np.ndarray):
+        img = img.squeeze(0).detach().cpu().numpy()
+        img = (img * 255).astype(np.uint8)
+        k, d = self.feat.detectAndCompute(img, None)
+        return k, d
 
-        k1, d1 = self.feat.detectAndCompute(img1, None)
-        k2, d2 = self.feat.detectAndCompute(img2, None)
-        if d1 is None or d2 is None or len(k1) < min_good or len(k2) < min_good:
+    def _score_pair(self, k1, d1, k2, d2) -> Tuple[float, Optional[np.ndarray]]:
+        if d1 is None or d2 is None or len(k1) < self.min_good or len(k2) < self.min_good:
             return 0.0, None
 
-        # FLANN + KNN
         knn = self.matcher.knnMatch(d1, d2, k=2)
-        # Lowe ratio
         good = []
         for pair in knn:
-            if len(pair) < 2:
-                continue
+            if len(pair) < 2: continue
             m, n = pair
             if m.distance < self.ratio * n.distance:
                 good.append(m)
-
-        if len(good) < min_good:
+        if len(good) < self.min_good:
             return 0.0, None
 
         pts1 = np.float32([k1[m.queryIdx].pt for m in good])
         pts2 = np.float32([k2[m.trainIdx].pt for m in good])
 
-        # Robust geometry
-        mask = None
         if self.use_H:
             method = cv2.RANSAC
-            if self._usac is not None:   # prefer USAC if available
+            if self._usac is not None:
                 method = self._usac
             elif self._magsac is not None:
                 method = self._magsac
-
-            H, inliers = cv2.findHomography(
-                pts1, pts2, method,
-                ransacReprojThreshold=self.ransac_thresh,
-                maxIters=self.maxIters, confidence=self.confidence
-            )
+            H, inliers = cv2.findHomography(pts1, pts2, method,
+                                            ransacReprojThreshold=self.ransac_thresh,
+                                            maxIters=self.maxIters, confidence=self.confidence)
             mask = inliers
-            M = H
         else:
             method = getattr(cv2, "USAC_FAST", cv2.RANSAC)
-            F, inliers = cv2.findFundamentalMat(
-                pts1, pts2, method, ransacReprojThreshold=self.ransac_thresh,
-                confidence=self.confidence, maxIters=self.maxIters
-            )
+            F, inliers = cv2.findFundamentalMat(pts1, pts2, method,
+                                                ransacReprojThreshold=self.ransac_thresh,
+                                                confidence=self.confidence, maxIters=self.maxIters)
             mask = inliers
-            M = F
 
         inlier_ratio = float(mask.sum()) / len(good) if mask is not None else 0.0
-        return inlier_ratio, M
-sm = SceneMatcher()
+        return inlier_ratio, mask
+
+    # ------------- training -------------
+    def train(self, X: np.ndarray, y: np.ndarray):
+        """
+        X: (N, H, W) or (N, H, W, 3)  uint8/float
+        y: (N,) labels (ints/strings)
+        """
+        assert len(X) == len(y)
+        X = [self._prep(x) for x in X]
+
+        # extract features for all images once
+        feats = [self._detect(x) for x in X]
+
+        # group by class
+        by_cls: Dict[Any, List[int]] = defaultdict(list)
+        for i, cls in enumerate(y):
+            by_cls[cls].append(i)
+
+        self.refs_by_class = {}
+        self.threshold_by_class = {}
+
+        for cls, idxs in by_cls.items():
+            # pick up to K reference exemplars (evenly spaced)
+            K = min(self.max_refs_per_class, len(idxs))
+            if K <= 0: 
+                continue
+            # evenly spaced selection
+            if K < len(idxs):
+                step = max(1, len(idxs) // K)
+                chosen = idxs[::step][:K]
+            else:
+                chosen = idxs
+
+            refs = []
+            for i in chosen:
+                k, d = feats[i]
+                refs.append({"kp": k, "desc": d})
+
+            # compute positive scores (image vs refs) to set threshold
+            pos_scores = []
+            for i in idxs:
+                kq, dq = feats[i]
+                if dq is None or len(kq) < self.min_good:
+                    continue
+                # best score against refs of the same class
+                best = 0.0
+                for r in refs:
+                    s, _ = self._score_pair(kq, dq, r["kp"], r["desc"])
+                    if s > best: best = s
+                if best > 0:
+                    pos_scores.append(best)
+
+            # fallback threshold if not enough matches
+            if len(pos_scores) >= 5:
+                thr = float(np.percentile(pos_scores, self.anomaly_percentile * 100.0))
+            elif len(pos_scores) > 0:
+                thr = float(min(pos_scores)) * 0.9  # conservative
+            else:
+                thr = 0.25  # reasonable default; tune if needed
+
+            self.refs_by_class[cls] = refs
+            self.threshold_by_class[cls] = thr
+
+    # ------------- inference -------------
+    def predict(self, image: np.ndarray) -> Tuple[bool, Any]:
+        """
+        Returns: (is_known, label_or_-1)
+        """
+        assert len(self.refs_by_class) > 0, "Call train() first."
+        img = self._prep(image)
+        kq, dq = self._detect(img)
+        if dq is None or len(kq) < self.min_good:
+            return (False, -1)
+
+        best_cls = None
+        best_score = 0.0
+
+        # score against class refs (take max per class)
+        for cls, refs in self.refs_by_class.items():
+            cls_best = 0.0
+            for r in refs:
+                s, _ = self._score_pair(kq, dq, r["kp"], r["desc"])
+                if s > cls_best:
+                    cls_best = s
+            if cls_best > best_score:
+                best_score = cls_best
+                best_cls = cls
+
+        # anomaly gate
+        thr = self.threshold_by_class.get(best_cls, 0.25)
+        if best_score >= thr:
+            return (True, best_cls if not torch.is_floating_point(best_cls) else int(list(self.refs_by_class.keys()).index(best_cls)))
+        else:
+            return (False, -1)
+
+    def __call__(self, image: np.ndarray, timestep: float) -> Tuple[bool, int]:
+        known, lab = self.predict(image)
+        return (known, lab if isinstance(lab, int) else (-1 if not known else int(lab)))
