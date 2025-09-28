@@ -5,6 +5,15 @@ import queue
 import numpy as np
 import simpleaudio as sa # pip install simpleaudio
 
+import os, ctypes
+
+# Point ALSA to the system plugin directory (Ubuntu 20.04)
+os.environ['ALSA_PLUGIN_DIR'] = '/usr/lib/x86_64-linux-gnu/alsa-lib'
+
+# Prefer the system libasound over Conda's (load it globally first)
+ctypes.CDLL('/usr/lib/x86_64-linux-gnu/libasound.so.2', mode=ctypes.RTLD_GLOBAL)
+
+
 # Sound synthesis utilities
 SAMPLE_RATE = 48000
 MASTER_VOL = 0.6  # overall volume ceiling (0..1)
@@ -78,7 +87,8 @@ def _audio_worker():
         if pcm is None:
             break  # optional clean shutdown
         try:
-            sa.play_buffer(pcm, 1, 2, SAMPLE_RATE).wait_done()
+            play_pcm_portable(pcm)
+            # sa.play_buffer(pcm, 1, 2, SAMPLE_RATE).wait_done()
         except Exception:
             # Avoid crashing audio thread on device hiccups
             pass
@@ -134,5 +144,35 @@ def sound_thread(self):
         _audio_q.put(None)
         _audio_thread.join(timeout=0.5)
 
+import io, wave, subprocess
+import simpleaudio as sa
+
+SAMPLE_RATE = 48000  # keep your constant
+
+def play_pcm_portable(pcm_int16):
+    try:
+        sa.play_buffer(pcm_int16, 1, 2, SAMPLE_RATE).wait_done()
+        return
+    except Exception as e1:
+        # Fallback: stream a WAV to PulseAudio
+        buf = io.BytesIO()
+        with wave.open(buf, 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)      # int16
+            w.setframerate(SAMPLE_RATE)
+            w.writeframes(pcm_int16.tobytes())
+        try:
+            subprocess.run(['paplay', '-'], input=buf.getvalue(), check=True)
+        except Exception as e2:
+            raise RuntimeError(f"Audio failed via simpleaudio and paplay: {e1} | {e2}") from e2
+
+
 if __name__ == "__main__":
-    sound_thread()
+    class T():
+        def __init__(self):
+            self.i = False
+        def teleop_has_control(self):
+            self.i = not(self.i)
+            return self.i
+
+    sound_thread(T())

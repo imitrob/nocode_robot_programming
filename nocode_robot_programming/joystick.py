@@ -26,8 +26,10 @@ BUTTONS = {
 AXES = {
     ecodes.ABS_X:   "LX",
     ecodes.ABS_Y:   "LY",
-    ecodes.ABS_Z:  "RX",
-    ecodes.ABS_RZ:  "RY",
+    ecodes.ABS_RX:  "RX", # A404 joystick
+    ecodes.ABS_RY:  "RY", # A404 joystick
+    # ecodes.ABS_Z:  "RX", # B602 joystick
+    # ecodes.ABS_RZ:  "RY", # B602 joystick
     # ecodes.ABS_Z:   "LT",        # trigger
     # ecodes.ABS_RZ:  "RT",        # trigger
     ecodes.ABS_HAT0X:"HAT_X",    # d-pad
@@ -159,10 +161,10 @@ class JoystickConnector():
     def joy_step(self):
         s = self.joy_state
         
-        self.feedback[1] = round(s.axes.get("LX", 0.0),1) *  self.feedback_gain  # left stick X
-        self.feedback[0] = -round(s.axes.get("LY", 0.0),1) * self.feedback_gain  # left stick Y
-        self.feedback[2] = round(s.axes.get("RY", 0.0),1) *  self.feedback_gain  # right stick Y
-        eef_rot = round(s.axes.get("RX", 0.0),1)  *          self.feedback_gain  # right stick X
+        self.feedback[1] = round(s.axes.get("LX", 0.0),1) *  0.01  # left stick X
+        self.feedback[0] = -round(s.axes.get("LY", 0.0),1) * 0.01  # left stick Y
+        self.feedback[2] = round(s.axes.get("RY", 0.0),1) *  0.01  # right stick Y
+        eef_rot = round(s.axes.get("RX", 0.0),1)  *          0.01  # right stick X
 
         q = UnitQuaternion([0.0,1.0,0.0,0.0])
         rot = sm.SO3(q.R) * sm.SO3.Rz(eef_rot)
@@ -171,8 +173,7 @@ class JoystickConnector():
         # print("Joystick joy_state:", self.feedback)
 
         if s.buttons.get("A", 0) > 0:
-            if not self.gripper.read_once().is_grasped:
-                self.feedback_gripper = "grasp"
+            self.feedback_gripper = "grasp"
         elif s.buttons.get("B", 0) > 0:
             self.feedback_gripper = "open"
             

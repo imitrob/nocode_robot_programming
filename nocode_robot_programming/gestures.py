@@ -104,7 +104,11 @@ class TeleoperationByDrawing(HandListener):
 
     def teleop_step(self):
         if self.is_hand_visible(self.teleop_hand):
-            self.pause = True # stops the execution
+            grab_strength = getattr(self.hand_frames[-1], self.teleop_hand).grab_strength
+            if grab_strength < 0.1:
+                self.pause = True # stops the execution
+            else:
+                self.pause = False
 
             trigger = self.is_gesture_activated(self.teleop_hand, self.link_gesture)
             self.teleop_position_compute(trigger)
@@ -112,9 +116,11 @@ class TeleoperationByDrawing(HandListener):
             self.is_drawing = False
         
         if self.is_hand_visible(self.teleop_aux_hand):
-            self.pause = True # stops the execution
-
             grab_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).grab_strength
+            if grab_strength < 0.1:
+                self.pause = True # stops the execution
+            else:
+                self.pause = False
 
             # OPTION: Close gripper proportionally with grab strength:
             # self.gripper.grasp(width=(1.-grab_strength)/1, speed=0.2, force=10, epsilon_inner=0.04, epsilon_outer=0.04)
@@ -173,10 +179,10 @@ class TeleoperationByDrawing(HandListener):
             self.feedback[0] = goal_pose[0] - current_position[0]
             self.feedback[1] = goal_pose[1] - current_position[1]
             self.feedback[2] = goal_pose[2] - current_position[2]
-            self.feedback[3] = goal_pose[3] - currect_orientation[0]
-            self.feedback[4] = goal_pose[4] - currect_orientation[1]
-            self.feedback[5] = goal_pose[5] - currect_orientation[2]
-            self.feedback[6] = goal_pose[6] - currect_orientation[3]
+            self.feedback[3] = 0.0 #goal_pose[3] - currect_orientation[0]
+            self.feedback[4] = 0.0 #goal_pose[4] - currect_orientation[1]
+            self.feedback[5] = 0.0 #goal_pose[5] - currect_orientation[2]
+            self.feedback[6] = 0.0 #goal_pose[6] - currect_orientation[3]
         else:
             self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]  #self.feedback
             self.is_drawing = False
