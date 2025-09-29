@@ -163,13 +163,9 @@ class JoystickConnector():
         
         self.feedback[1] = round(s.axes.get("LX", 0.0),1) *  0.01  # left stick X
         self.feedback[0] = -round(s.axes.get("LY", 0.0),1) * 0.01  # left stick Y
-        self.feedback[2] = round(s.axes.get("RY", 0.0),1) *  0.01  # right stick Y
-        eef_rot = round(s.axes.get("RX", 0.0),1)  *          0.01  # right stick X
-
-        q = UnitQuaternion([0.0,1.0,0.0,0.0])
-        rot = sm.SO3(q.R) * sm.SO3.Rz(eef_rot)
-        self.feedback[3],self.feedback[4],self.feedback[5],self.feedback[6] = UnitQuaternion(rot).vec_xyzs
-
+        self.feedback[3] = round(s.axes.get("RX", 0.0),1)  * 0.05  # right stick X
+        self.feedback[4] = round(s.axes.get("RY", 0.0),1) *  0.05  # right stick Y
+        
         # print("Joystick joy_state:", self.feedback)
 
         if s.buttons.get("A", 0) > 0:
@@ -178,7 +174,17 @@ class JoystickConnector():
             self.feedback_gripper = "open"
             
         if s.buttons.get("X", 0) > 0:
-            self.pause = True
+            self.pause = not(self.pause)
+
+        if s.buttons.get("Y", 0) > 0:
+            self.end = True
+
+        if s.buttons.get("LB", 0) > 0:
+            self.feedback[2] = 0.01
+        elif s.buttons.get("RB", 0) > 0:
+            self.feedback[2] = -0.01
+        else:
+            self.feedback[2] = 0.
 
 
 if __name__ == "__main__":

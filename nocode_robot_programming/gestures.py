@@ -33,6 +33,76 @@ def transform_leap_to_scene(data, scale=1.0, start=[0.5, 0.0, 0.2]):
 
     return data
 
+def _unit(v, eps=1e-9):
+    n = np.linalg.norm(v)
+    return v / n if n > eps else v*0.0
+
+def classify_hand_direction_asym(
+    palm_vec, wrist_vec,
+    sensor_up=np.array([0., 1., 0.]),
+    sensor_right=np.array([1., 0., 0.]),
+    bend_thresh_deg=7.0,           # default for up/down/left
+    bend_thresh_right_deg=3.5,     # easier bend threshold for RIGHT
+    strength_thresh=0.35,          # default strength
+    strength_thresh_right=0.25     # easier strength for RIGHT (tune)
+):
+    f = _unit(wrist_vec)
+    p = _unit(palm_vec)
+
+    # Bend angle between forearm and palm (0 = straight)
+    cross_fp = np.cross(f, p)
+    dot_fp = float(np.dot(f, p))
+    bend_rad = np.arctan2(np.linalg.norm(cross_fp), np.clip(dot_fp, -1.0, 1.0))
+    bend_deg = np.degrees(bend_rad)
+
+    # Lateral component (remove along-forearm)
+    l = p - np.dot(p, f) * f
+    l = _unit(l)
+    if np.allclose(l, 0.0):
+        return "straight", bend_deg, (0.0, 0.0)
+
+    # Project sensor up/right into plane ⟂ f
+    u_hat = _unit(sensor_up   - np.dot(sensor_up, f)   * f)
+    r_hat = _unit(sensor_right- np.dot(sensor_right, f)* f)
+    if np.allclose(u_hat, 0.0) or np.allclose(r_hat, 0.0):
+        # rebuild a local basis if needed
+        tmp = np.array([1.,0.,0.]) if abs(f[0]) < 0.9 else np.array([0.,1.,0.])
+        r_hat = _unit(np.cross(f, tmp))
+        u_hat = _unit(np.cross(r_hat, f))
+
+    u_comp = float(np.dot(l, u_hat))   # +up,  -down
+    r_comp = float(np.dot(l, r_hat))   # +right,-left
+
+    candidates = {
+        "up":    u_comp,
+        "down": -u_comp,
+        "right": r_comp,
+        "left": -r_comp,
+    }
+    label = max(candidates, key=candidates.get)
+    val   = candidates[label]
+
+    # Per-label thresholds
+    bend_req = {
+        "up": bend_thresh_deg,
+        "down": bend_thresh_deg,
+        "left": bend_thresh_deg,
+        "right": bend_thresh_right_deg,
+    }[label]
+    strength_req = {
+        "up": strength_thresh,
+        "down": strength_thresh,
+        "left": strength_thresh,
+        "right": strength_thresh_right,
+    }[label]
+
+    if bend_deg >= bend_req and val >= strength_req:
+        return label, bend_deg, (u_comp, r_comp)
+    else:
+        return "straight", bend_deg, (u_comp, r_comp)
+
+
+
 class TeleoperationByDrawing(HandListener):
     def __init__(self,
                  teleop_hand: str = "l", 
@@ -139,6 +209,11 @@ class TeleoperationByDrawing(HandListener):
                 self.teleop_scale
             )
 
+            palm_vec = np.array(self.hand_frames[-1].l.palm_position()) - np.array(self.hand_frames[-1].l.elbow_position())
+            wrist_vec = np.array(self.hand_frames[-1].l.wrist_position()) - np.array(self.hand_frames[-1].l.elbow_position())
+            rotate_feedback = classify_hand_direction_asym(palm_vec, wrist_vec)
+            # print(ret)
+
             if self.teleop_rotate_eef:
                 x,y = self.hand_frames[-1].r.direction()[0:2]
                 angle = np.arctan2(y,x)
@@ -162,9 +237,6 @@ class TeleoperationByDrawing(HandListener):
                 self.eef_rot = deepcopy(self.eef_rot_scene)
                 self.eef_rot += (angle - self.live_mode_drawing_eef_rot_anchor)
 
-            q = UnitQuaternion([0.0,0.0,1.0,0.0])
-            rot = sm.SO3(q.R) * sm.SO3.Rz(self.eef_rot)
-            goal_pose[3],goal_pose[4],goal_pose[5],goal_pose[6] = UnitQuaternion(rot).vec_xyzs
             
             # Save cage
             # goal_pose = np.clip(
@@ -179,10 +251,19 @@ class TeleoperationByDrawing(HandListener):
             self.feedback[0] = goal_pose[0] - current_position[0]
             self.feedback[1] = goal_pose[1] - current_position[1]
             self.feedback[2] = goal_pose[2] - current_position[2]
-            self.feedback[3] = 0.0 #goal_pose[3] - currect_orientation[0]
-            self.feedback[4] = 0.0 #goal_pose[4] - currect_orientation[1]
-            self.feedback[5] = 0.0 #goal_pose[5] - currect_orientation[2]
-            self.feedback[6] = 0.0 #goal_pose[6] - currect_orientation[3]
+
+            if rotate_feedback[0] == 'left':
+                self.feedback[3] = -0.05
+            elif rotate_feedback[0] == 'right':
+                self.feedback[3] = 0.05
+            elif rotate_feedback[0] == 'down':
+                self.feedback[4] = -0.05
+            elif rotate_feedback[0] == 'up':
+                self.feedback[4] = 0.05
+            else:
+                self.feedback[3] = 0.0
+                self.feedback[4] = 0.0
+
         else:
             self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]  #self.feedback
             self.is_drawing = False

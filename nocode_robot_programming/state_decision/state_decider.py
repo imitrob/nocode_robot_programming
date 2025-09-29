@@ -3,7 +3,7 @@ import torch
 
 class StateDeciderBase():
     def __init__(self):
-        self.model = None
+        self.model = 0
 
     def train(self, X: torch.Tensor, y: torch.Tensor): 
         '''
