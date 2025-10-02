@@ -6,6 +6,22 @@ from nocode_robot_programming.state_decision.task_graph import TaskGraph
 from pathlib import Path
 import trajectory_data
 
+import torchvision
+def saved_img_processing(img):
+    min_dim_size = min(img.shape[0], img.shape[1])
+    resize_transform = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.CenterCrop((min_dim_size, min_dim_size)),
+            torchvision.transforms.Resize(
+                (64, 64), torchvision.transforms.InterpolationMode.BILINEAR
+            ),
+        ]
+    )
+
+    img_tensor = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
+    return resize_transform(img_tensor) / 255.0
+
+
 # ---- tiny dict-like wrappers ----
 class TimestepView(dict):
     """One rollout @ a single timestep with a convenience .image (H,W) uint8."""
@@ -107,8 +123,8 @@ class TrajectoryDataset(TaskGraph, Dataset):
                 label = 0
             idx = self.files.index(f"{self.dir}/{file}.npz")
 
-            X = torch.concatenate([X, self[idx]['img']])
-            
+            X = torch.concatenate([X, saved_img_processing(self[idx]['img'].squeeze())])
+
             nsamples = len(self[idx]['img'])
             offset = label
             xt_list = torch.tensor(list(range(offset,offset+nsamples)))

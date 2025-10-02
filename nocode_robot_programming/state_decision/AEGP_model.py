@@ -1,21 +1,260 @@
 
 
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
 
-from video_embedding.utils import set_session, get_all_names
-from video_embedding.models.video_embedder import VideoEmbedder
-from video_embedding.models.video_embedding_dataset import load_dataloader
+import gpytorch
+from tqdm import tqdm
 
-from risk_estimation.result_evaluator import ResultEvaluator
-from risk_estimation.datasets.risk_feature_extractor import *
-from risk_estimation.datasets.risk_dataloader import RiskEstimationDataset as D
-from risk_estimation.datasets.frame_dropping import *
-from risk_estimation.models.mlp_risk_estimator import MLPRiskEstimator, MLPRiskEstimator2
-from risk_estimation.models.gp_risk_estimator import GPRiskEstimator, TwinGPRiskEstimator
-from risk_estimation.models.dist_risk_estimator import *
-from risk_estimation.models.resnet_risk_estimator import ResNetRiskEstimator
-from risk_estimation.models.safety_layer import get_risk_estimator
-from video_embedding.utils import all_trial_names, all_test_names, visualize_labelled_video, visualize_labelled_video_frame, get_session
-from video_embedding.models.video_embedder import VideoEmbedder
 
-from risk_estimation.models.risk_estimator import *
-from video_embedding.models.nerual_networks.autoencoder import *
+class AEGP():
+    """ Autoencoder + Gaussian Process """
+    def __init__(self):
+        self.videoembedder = VideoEmbedder()
+        self.risk_estimator = GPRiskEstimator()
+
+    def train(self, X: torch.Tensor, y: torch.Tensor): 
+        """ X.shape = (samples, width, height), y.shape = (samples, ) """
+        Xpp = torch.concatenate([X[1:].clone(), X[-1:].clone()])
+        X_ = torch.stack([X, Xpp]).swapaxes(0,1) # X_.shape = (samples, 2, width, height)
+
+        self.videoembedder.training_loop(DataLoader(X_))
+        self.risk_estimator.training_loop(DataLoader(X), DataLoader(y))
+
+    def predict(self, image: torch.Tensor, timestep: float) -> tuple[bool, int]: # returns a branch (y) or -1 as anomaly
+        return False, int(self.model)
+
+class Autoencoder3(nn.Module):
+    def forward(self, x):
+        if self.run_batched: return self.bforward(x)
+        z = self.encoder(x)
+        x_reconstructed = self.decoder(z)
+        return x_reconstructed
+    
+    def __init__(self, latent_dim: int = 12):
+        super(Autoencoder3, self).__init__()
+
+        # Encoder with dropout
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),  # Added
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Dropout2d(0.05),  # Added
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Dropout2d(0.05),  # Added
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            
+            nn.Flatten(),
+            nn.Linear(256 * 8 * 8, latent_dim),
+            nn.Dropout(0.02)  # Added after linear layer
+        )
+        
+        # Decoder with dropout
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, 256 * 8 * 8),
+            nn.Dropout(0.02),  # Added
+            nn.Unflatten(1, (256, 8, 8)),
+            
+            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Dropout2d(0.05),  # Added
+            
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),  # Added
+            
+            nn.ConvTranspose2d(64, 1, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.Sigmoid()
+        )
+
+class VideoEmbedder():
+    def __init__(self):
+        self.model = Autoencoder3(12)
+        self.model.to("cpu")
+        self.criterion = nn.MSELoss()
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=0.01, weight_decay=0.0000001
+        )
+
+    def nuclear_norm_loss(self, x):
+        # Compute the nuclear norm of the input tensor
+        # x = x.view(x.size(0), -1)  # Flatten the tensor
+        u, s, v = torch.svd(x)
+        return torch.sum(s)
+
+    def training_loop(self, dataloader: DataLoader, num_epochs: int = 1, patience = 100):    
+        best_loss: float = float("inf")
+        counter = 0
+        
+        dataset = dataloader.dataset
+        dataset_size = len(dataset)
+        train_size = int(0.8 * dataset_size)
+        test_size = dataset_size - train_size
+        train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+        train_loader = DataLoader(train_dataset, batch_size=dataloader.batch_size, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=dataloader.batch_size, shuffle=False)
+
+        pviz = tqdm(range(num_epochs))
+        for epoch in pviz:
+            if epoch % 10 == 0 and epoch > 0:
+                self.optimizer.param_groups[0]["lr"] *= 0.5
+            for data_tensor in train_loader:
+                next_image = data_tensor[:, 1, :, :].unsqueeze(1)
+                input_batch = data_tensor[:, 0, :, :].unsqueeze(1)
+                self.optimizer.zero_grad()
+                # output = self.model(input_batch)
+                latent_vec = self.model.encoder(input_batch)
+                output = self.model.decoder(latent_vec)
+
+                latent_vec_next_image = self.model.encoder(next_image)
+
+                alpha = 100.0
+                beta = 0.0001
+                l1_lambda = 0.00001
+                continuity_loss_lambda = 1.0
+
+                # continuity loss
+                continuity_loss = torch.nn.functional.mse_loss(latent_vec, latent_vec_next_image)
+
+                # l1 loss on all weights
+                l1_loss = 0
+                for name, param in self.model.named_parameters():
+                    l1_loss += torch.sum(torch.abs(param))
+
+                # reconstruction loss
+                recon_loss = self.criterion(output, input_batch)
+
+                # nuclear norm loss
+                nuclear_loss = self.nuclear_norm_loss(latent_vec)
+
+                loss = (
+                    alpha * recon_loss
+                    + beta * nuclear_loss
+                    + l1_lambda * l1_loss
+                    + continuity_loss_lambda * continuity_loss
+                )
+                loss.backward()
+                self.optimizer.step()
+
+                train_loss = loss.item()
+
+            # compute the test loss
+            for data_tensor in test_loader:
+                next_image = data_tensor[:, 1, :, :].unsqueeze(1)
+                input_batch = data_tensor[:, 0, :, :].unsqueeze(1)
+                # input_batch = data[0]
+                with torch.no_grad():
+                    latent_vec = self.model.encoder(input_batch)
+                    output = self.model.decoder(latent_vec)
+                    loss = self.criterion(output, input_batch)
+
+            val_loss = loss.item()
+
+            if val_loss < best_loss:
+                best_loss = val_loss
+                counter = 0  # Reset patience counter
+            else:
+                counter += 1
+
+            if counter >= patience:  # Stop if no improvement for `patience` epochs
+                print("Early stopping triggered")
+                ret = "stop"
+            else:
+                ret = "continue"
+
+            if ret == "stop":
+                print(f"No improvement for {patience} epochs. Stopping training.")
+                break
+
+            pviz.set_description(
+                desc=f"Epoch [{epoch}/{num_epochs}], Trainloss: {train_loss}, ValLoss: {val_loss}"
+            )
+
+        return epoch, loss
+
+class GPModel(gpytorch.models.ExactGP):
+    def __init__(self, train_x, train_y, likelihood):
+        self.train_x = train_x
+        self.train_y = train_y
+        ard_num_dim=train_x.size(-1)
+        super(GPModel, self).__init__(train_x, train_y, likelihood)
+        self.mean_module = gpytorch.means.ZeroMean()  
+        self.covar_module = gpytorch.kernels.ScaleKernel(
+            gpytorch.kernels.RBFKernel(
+                ard_num_dims=ard_num_dim,
+                lengthscale_constraint=gpytorch.constraints.Interval(0.1, 1.0),
+                ),
+        )
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+class GPRiskEstimator():
+    def __init__(self):
+        super(GPRiskEstimator, self).__init__()
+
+    def training_loop(self, X, Y):
+        self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        self.model = GPModel(X, Y, self.likelihood)
+        self.model=self.model.cuda()
+        self.likelihood=self.likelihood.cuda()
+
+        self.model.train()
+        self.likelihood.train()
+        optimizer = torch.optim.Adam([
+            {'params': self.model.parameters()},
+        ], lr=0.01)
+
+        # Our loss object. We're using the VariationalELBO
+        mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
+
+        self.epochs_iter = tqdm(range(self.train_epoch))
+        try:
+            for i in self.epochs_iter:
+                optimizer.zero_grad()
+                output = self.model(X)
+                loss = -mll(output, Y)
+                loss.backward()
+                self.loss = loss.item()
+                optimizer.step()
+                
+        except KeyboardInterrupt:
+            print("Stopping on interrupt")
+        finally:
+            print("Continuing with the rest of the program")
+        
+        self.trained_epoch = i
+    
+    def sample(self, X):
+        assert X.ndim == 2
+
+        self.model.eval()
+        self.likelihood.eval()
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            observed_pred = self.likelihood(self.model(X))
+            mean = observed_pred.mean.cpu().numpy()
+            std = observed_pred.stddev.cpu().numpy()
+            
+            r = mean + std
+            pred = r > 0.5
+        self.model.train()
+        self.likelihood.train()
+        return pred, r, std
+
+if __name__ == "__main__":
+    AEGP()
