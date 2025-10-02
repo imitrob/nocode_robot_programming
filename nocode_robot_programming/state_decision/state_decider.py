@@ -4,14 +4,16 @@ import torch
 class StateDeciderBase():
     def __init__(self):
         self.model = 0
+        self.y_cls = None
 
-    def train(self, X: torch.Tensor, y: torch.Tensor): 
+    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls): 
         '''
             X: shape (samples, w, h) 
             y: shape (samples, )
         '''
         target_label = y[0]
         self.model = target_label
+        self.y_cls = y_cls
 
     def predict(self, image: torch.Tensor, timestep: float) -> tuple[bool, int]: # returns a branch (y) or -1 as anomaly
         return False, int(self.model)

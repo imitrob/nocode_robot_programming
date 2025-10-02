@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os, glob, numpy as np, torch
 from torch.utils.data import Dataset, DataLoader
 import cv2 as cv
@@ -112,27 +113,6 @@ class TrajectoryDataset(TaskGraph, Dataset):
             ret.append(self[idx])
         return ret
 
-    def get_image_dataset(self, file_names: list):
-        X = torch.tensor([])
-        Xt = torch.tensor([])
-        y = torch.tensor([])
-        for file in file_names:
-            try:
-                label = int(file.split("_")[-1])
-            except ValueError:
-                label = 0
-            idx = self.files.index(f"{self.dir}/{file}.npz")
-
-            X = torch.concatenate([X, saved_img_processing(self[idx]['img'].squeeze())])
-
-            nsamples = len(self[idx]['img'])
-            offset = label
-            xt_list = torch.tensor(list(range(offset,offset+nsamples)))
-            Xt = torch.concatenate([Xt, xt_list])
-            
-            y = torch.concatenate([y, torch.tensor([label] * len(self[idx]['img']))])
-        return X.squeeze(), Xt, y
-
     # ---- quick access helpers ----
     def timestep(self, idx, t):
         """
@@ -188,3 +168,42 @@ class TrajectoryDataset(TaskGraph, Dataset):
             if cv.waitKey(delay) & 0xFF == 27:  # ESC to quit
                 break
         cv.destroyAllWindows()
+
+    def get_image_dataset(self, file_names: list) -> ImageDatasetView:
+        assert len(file_names) > 0
+        X = torch.tensor([])
+        Xt = torch.tensor([])
+        y_int = torch.tensor([], dtype=torch.int)
+        y_names = []
+
+        for i, file in enumerate(file_names):
+            try:
+                branch_timestep = int(file.split("_")[-1])
+            except ValueError:
+                branch_timestep = 0
+            idx = self.files.index(f"{self.dir}/{file}.npz")
+            nsamples = len(self[idx]['img'])
+            
+            # X.shape = (samples, width, height)
+            X = torch.hstack([X, saved_img_processing(self[idx]['img'].squeeze())])
+            
+            # Xt.shape 
+            xt_list = torch.tensor(list(range(branch_timestep,branch_timestep+nsamples)))
+            Xt = torch.concatenate([Xt, xt_list])
+            
+            y_int = torch.concatenate([y_int, torch.tensor([i] * nsamples)])
+            y_names.extend([file] * nsamples)
+        return ImageDatasetView(X = X.squeeze(), Xt = Xt, y_int = y_int, y_names = y_names, y_cls = file_names)
+
+class ImageDatasetView(Dataset):
+    def __init__(self, X, Xt, y_int, y_names, y_cls):
+        super(ImageDatasetView, self).__init__()
+        assert X.ndim == 3 and Xt.ndim == 1 and y_int.ndim == 1
+        self.X = X.cuda() # X.shape = (samples, width, height)
+        self.Xt = Xt.cuda() # Xt.shape = (samples, )
+        self.y_int = y_int.cuda() # y_int.shape = (samples, )
+        self.y_names = y_names # len(y_names) = samples
+        self.y_cls = y_cls # len(y_cls) = "number of skill variants - files"
+    
+    def y_decode(self, y_int):
+        return self.y_cls[y_int]

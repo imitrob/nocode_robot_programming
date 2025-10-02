@@ -28,6 +28,8 @@ class DINOStateDecider():
                           Stricter (lower) => more anomalies; looser (higher) => fewer anomalies.
             max_side: reserved for custom resizing, not crucial with 224 crops
         """
+        self.y_cls = None
+
         self.device = torch.device("cuda") # we have only cuda machines
 
         # --- model ---
@@ -107,11 +109,14 @@ class DINOStateDecider():
         return torch.cat(feats, dim=0)  # [N, D]
 
 
-    def train(self, X: np.ndarray, y: np.ndarray):
-        """
+    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls):
+        """ X,y inputs are at cuda by default
         X: shape (N, H, W) or (N, H, W, 3) uint8/float
         y: shape (N,) integer/str labels (will be stored as original values)
         """
+        X = X.cpu()
+        y = y.cpu()
+        self.y_cls = y_cls
         assert len(X) == len(y), "X and y must have the same length."
 
         # 1) Compute embeddings (batched, on device)
@@ -145,28 +150,11 @@ class DINOStateDecider():
         self.train_embeddings = feats
         self.train_labels = torch.from_numpy(y_np)
 
-
-
-    # def embed(self, img_pil, CLS=True):
-    #     x = self.pre(img_pil).unsqueeze(0)        # [1,3,224,224]
-    #     with torch.no_grad():
-    #         out = self.model.forward_features(x)  # implementation-specific
-    #         if CLS:  # Option A: use CLS token
-    #             feat = out["x_norm_clstoken"]   # [1, D]
-    #         else:  # Option B: mean-pool patch tokens (exclude cls/registers)
-    #             feat = out["x_norm_patchtokens"].mean(dim=1)  # [1, D]
-    #     feat = F.normalize(feat, dim=-1)
-    #     return feat.squeeze(0)               # [D]
-
-    # def cosine_sim(self, a, b):
-    #     return float((a*b).sum())  # a and b already L2-normalized
-
     @torch.inference_mode()
-    def predict(self, image: np.ndarray) -> Tuple[bool, int]:
+    def predict(self, image: np.ndarray) -> Tuple[bool, str]:
         """
         Returns:
-            (is_known, label_or_minus1)
-            If anomaly => (False, -1)
+            (anomaly, label_or_minus1)
         """
         assert self.class_centroids is not None, "Call train() first."
 
@@ -191,9 +179,9 @@ class DINOStateDecider():
             except Exception:
                 # if labels were strings, you can map externally; here keep -1 fallback
                 lab_int = int(best_idx)
-            return True, lab_int
+            return False, self.y_cls[lab_int]
         else:
-            return False, -1
+            return True, ""
 
    # -------- Optional: kNN fallback for edge cases --------
     @torch.inference_mode()

@@ -23,6 +23,7 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         method: 'SIFT' | 'AKAZE' | 'ORB'
         anomaly_percentile: lower -> stricter (more anomalies), higher -> looser
         """
+        self.y_cls = None
         self.method = method.upper()
         self.max_side = max_side
         self.ratio = ratio
@@ -116,11 +117,12 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         return inlier_ratio, mask
 
     # ------------- training -------------
-    def train(self, X: np.ndarray, y: np.ndarray):
+    def train(self, X: np.ndarray, y: np.ndarray, y_cls):
         """
         X: (N, H, W) or (N, H, W, 3)  uint8/float
         y: (N,) labels (ints/strings)
         """
+        self.y_cls = y_cls
         assert len(X) == len(y)
         X = [self._prep(x) for x in X]
 
@@ -178,7 +180,7 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
             self.threshold_by_class[cls] = thr
 
     # ------------- inference -------------
-    def predict(self, image: np.ndarray) -> Tuple[bool, Any]:
+    def predict(self, image: np.ndarray) -> Tuple[bool, str]:
         """
         Returns: (is_known, label_or_-1)
         """
@@ -186,7 +188,7 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         img = self._prep(image)
         kq, dq = self._detect(img)
         if dq is None or len(kq) < self.min_good:
-            return (False, -1)
+            return (False, "")
 
         best_cls = None
         best_score = 0.0
@@ -205,9 +207,10 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         # anomaly gate
         thr = self.threshold_by_class.get(best_cls, 0.25)
         if best_score >= thr:
-            return (True, best_cls if not torch.is_floating_point(best_cls) else int(list(self.refs_by_class.keys()).index(best_cls)))
+            ret = best_cls if not torch.is_floating_point(best_cls) else int(list(self.refs_by_class.keys()).index(best_cls))
+            return True, self.y_cls[ret]
         else:
-            return (False, -1)
+            return (False, "")
 
     def __call__(self, image: np.ndarray, timestep: float) -> Tuple[bool, int]:
         known, lab = self.predict(image)

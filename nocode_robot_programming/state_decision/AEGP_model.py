@@ -12,18 +12,49 @@ class AEGP():
     """ Autoencoder + Gaussian Process """
     def __init__(self):
         self.videoembedder = VideoEmbedder()
-        self.risk_estimator = GPRiskEstimator()
+        self.riskestimator = GPEstimator()
+        self.y_cls = None
 
-    def train(self, X: torch.Tensor, y: torch.Tensor): 
+    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls):
+        self.y_cls = y_cls 
         """ X.shape = (samples, width, height), y.shape = (samples, ) """
         Xpp = torch.concatenate([X[1:].clone(), X[-1:].clone()])
         X_ = torch.stack([X, Xpp]).swapaxes(0,1) # X_.shape = (samples, 2, width, height)
 
         self.videoembedder.training_loop(DataLoader(X_))
-        self.risk_estimator.training_loop(DataLoader(X), DataLoader(y))
+        self.videoembedder.model.eval()
+        latent = torch.tensor([]).cuda()
+        for i in range(len(X_)):
+            latent_ = self.videoembedder.model.encoder(X_[i:i+1,0:1,:,:]) # extract image (discards next_image). 4D
+            latent = torch.concatenate([latent, latent_])
+        
+        self.riskestimator.training_loop(latent, y)
 
-    def predict(self, image: torch.Tensor, timestep: float) -> tuple[bool, int]: # returns a branch (y) or -1 as anomaly
-        return False, int(self.model)
+    def predict(self, image: torch.Tensor, timestep: float | None = None) -> tuple[bool, str]: # returns a branch (y) or -1 as anomaly
+        self.videoembedder.model.eval()
+        latent = self.videoembedder.model.encoder(image.unsqueeze(0).unsqueeze(0)) # (1, 1, width, height), 4D
+
+        # self.riskestimator.model.eval()
+        # self.riskestimator.likelihood.eval()
+        # with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        #     observed_pred = self.riskestimator.likelihood(self.riskestimator.model(latent))
+        #     mean = observed_pred.mean.cpu().numpy()
+        #     std = observed_pred.stddev.cpu().numpy()
+            
+        #     r = mean + std
+        #     pred = r > 0.5
+        # return bool(pred), self.y_cls[int(mean)]
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            device = next(self.riskestimator.model.parameters()).device
+            Xtest = Xtest.to(device)
+            self.riskestimator.model.eval()
+            self.riskestimator.likelihood.eval()
+            preds = self.riskestimator.likelihood(self.riskestimator.model(Xtest))  # Categorical distribution
+            probs = preds.probs                          # (N, num_classes)
+            labels = probs.argmax(dim=1)
+        return labels, probs
+
+
 
 class Autoencoder3(nn.Module):
     def forward(self, x):
@@ -83,7 +114,7 @@ class Autoencoder3(nn.Module):
 class VideoEmbedder():
     def __init__(self):
         self.model = Autoencoder3(12)
-        self.model.to("cpu")
+        self.model.to("cuda")
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=0.01, weight_decay=0.0000001
@@ -96,6 +127,7 @@ class VideoEmbedder():
         return torch.sum(s)
 
     def training_loop(self, dataloader: DataLoader, num_epochs: int = 1, patience = 100):    
+        self.model.train()
         best_loss: float = float("inf")
         counter = 0
         
@@ -185,76 +217,113 @@ class VideoEmbedder():
 
         return epoch, loss
 
-class GPModel(gpytorch.models.ExactGP):
-    def __init__(self, train_x, train_y, likelihood):
-        self.train_x = train_x
-        self.train_y = train_y
-        ard_num_dim=train_x.size(-1)
-        super(GPModel, self).__init__(train_x, train_y, likelihood)
-        self.mean_module = gpytorch.means.ZeroMean()  
+# class GPModel(gpytorch.models.ExactGP):
+#     def __init__(self, train_x, train_y, likelihood):
+#         super(GPModel, self).__init__(train_x, train_y, likelihood)
+#         self.mean_module = gpytorch.means.ZeroMean()  
+#         self.covar_module = gpytorch.kernels.ScaleKernel(
+#             gpytorch.kernels.RBFKernel(
+#                 ard_num_dims=train_x.size(-1),
+#                 lengthscale_constraint=gpytorch.constraints.Interval(0.1, 1.0),
+#                 ),
+#         )
+
+#     def forward(self, x):
+#         mean_x = self.mean_module(x)
+#         covar_x = self.covar_module(x)
+#         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+# class GPEstimator():
+#     def __init__(self):
+#         super(GPEstimator, self).__init__()
+
+#     def training_loop(self, X, Y, train_epoch = 400):
+#         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+#         self.model = GPModel(X, Y, self.likelihood)
+#         self.model=self.model.cuda()
+#         self.likelihood=self.likelihood.cuda()
+
+#         self.model.train()
+#         self.likelihood.train()
+#         optimizer = torch.optim.Adam([
+#             {'params': self.model.parameters()},
+#         ], lr=0.01)
+
+#         # Our loss object. We're using the VariationalELBO
+#         mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
+#         try:
+#             for _ in tqdm(range(train_epoch)):
+#                 optimizer.zero_grad()
+#                 output = self.model(X)
+#                 loss = -mll(output, Y)
+#                 loss.backward(retain_graph=True)
+#                 self.loss = loss.item()
+#                 optimizer.step()
+#         except KeyboardInterrupt:
+#             print("Stopping on interrupt")
+
+from gpytorch.variational import VariationalStrategy, CholeskyVariationalDistribution, MultitaskVariationalStrategy
+
+class MulticlassGP(gpytorch.models.ApproximateGP):
+    def __init__(self, inducing_points: torch.Tensor, num_classes: int, ard_dims: int):
+        # Base variational strategy (single latent)
+        q_dist = CholeskyVariationalDistribution(inducing_points.size(-2))
+        base_vs = VariationalStrategy(self, inducing_points, q_dist, learn_inducing_locations=True)
+        # Promote to multi-task: one latent per class
+        mt_vs = MultitaskVariationalStrategy(base_vs, num_tasks=num_classes)
+        super().__init__(mt_vs)
+
+        self.mean_module = gpytorch.means.ZeroMean()
         self.covar_module = gpytorch.kernels.ScaleKernel(
-            gpytorch.kernels.RBFKernel(
-                ard_num_dims=ard_num_dim,
-                lengthscale_constraint=gpytorch.constraints.Interval(0.1, 1.0),
-                ),
+            gpytorch.kernels.RBFKernel(ard_num_dims=ard_dims,
+                                       lengthscale_constraint=gpytorch.constraints.Interval(0.1, 1.0))
         )
 
     def forward(self, x):
-        mean_x = self.mean_module(x)
+        mean_x  = self.mean_module(x)
         covar_x = self.covar_module(x)
+        # With MultitaskVariationalStrategy, return a standard MVN; the strategy handles tasks
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
-class GPRiskEstimator():
+
+class GPEstimator:
     def __init__(self):
-        super(GPRiskEstimator, self).__init__()
-
-    def training_loop(self, X, Y):
-        self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
-        self.model = GPModel(X, Y, self.likelihood)
-        self.model=self.model.cuda()
-        self.likelihood=self.likelihood.cuda()
-
-        self.model.train()
-        self.likelihood.train()
-        optimizer = torch.optim.Adam([
-            {'params': self.model.parameters()},
-        ], lr=0.01)
-
-        # Our loss object. We're using the VariationalELBO
-        mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
-
-        self.epochs_iter = tqdm(range(self.train_epoch))
-        try:
-            for i in self.epochs_iter:
-                optimizer.zero_grad()
-                output = self.model(X)
-                loss = -mll(output, Y)
-                loss.backward()
-                self.loss = loss.item()
-                optimizer.step()
-                
-        except KeyboardInterrupt:
-            print("Stopping on interrupt")
-        finally:
-            print("Continuing with the rest of the program")
-        
-        self.trained_epoch = i
+        super(GPEstimator, self).__init__()
     
-    def sample(self, X):
-        assert X.ndim == 2
+    def training_loop(self, X, Y, train_epoch=400, lr=0.01, M=128):
+        """
+        X: (N, D) float tensor
+        Y: (N,) long tensor with class indices 0..num_classes-1
+        M: number of inducing points (choose <= N)
+        """
+        num_classes = len(list(set(Y)))
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        X = X.to(device)
+        Y = Y.long().to(device)
 
-        self.model.eval()
-        self.likelihood.eval()
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            observed_pred = self.likelihood(self.model(X))
-            mean = observed_pred.mean.cpu().numpy()
-            std = observed_pred.stddev.cpu().numpy()
-            
-            r = mean + std
-            pred = r > 0.5
+        # Choose inducing points (simple random subset; use k-means for better coverage if you like)
+        idx = torch.randperm(X.size(0))[:min(M, X.size(0))]
+        Z = X[idx].contiguous()
+
+        self.model = MulticlassGP(Z, num_classes=num_classes, ard_dims=X.size(-1)).to(device)
+        self.likelihood = gpytorch.likelihoods.SoftmaxLikelihood(num_classes=num_classes, num_features=num_classes).to(device)
+
         self.model.train()
         self.likelihood.train()
-        return pred, r, std
+
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        mll = gpytorch.mlls.VariationalELBO(self.likelihood, self.model, num_data=Y.size(0))
+
+        for i in range(train_epoch):
+            optimizer.zero_grad()
+            output = self.model(X)           # latent functions (one per class)
+            loss = -mll(output, Y)           # Y must be LongTensor
+            loss.backward()
+            optimizer.step()
+
+        self.trained_epoch = train_epoch
+
+
 
 if __name__ == "__main__":
     AEGP()
