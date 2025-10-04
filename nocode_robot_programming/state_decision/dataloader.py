@@ -8,19 +8,41 @@ from pathlib import Path
 import trajectory_data
 
 import torchvision
+
+
+class To01FromDtype(torch.nn.Module):
+    def forward(self, x: torch.Tensor):
+        # x: (C,H,W) or (H,W). Map to [0,1] based on dtype/range.
+        if x.dtype == torch.uint8:
+            x = x.float() / 255.0
+        elif x.dtype == torch.uint16:
+            x = x.float() / 65535.0
+        else:
+            x = x.float()  # assume already float; DO NOT rescale again
+        return x.clamp_(0, 1)
+
+resize_transform = T.Compose([
+    To01FromDtype(),  # <-- do this BEFORE resize if x is float to avoid weird interpolation with huge values
+    T.Lambda(lambda x: x if x.ndim == 3 else x.unsqueeze(0)),  # HxW -> 1xHxW
+    T.CenterCrop(min_dim_size),
+    T.Resize((64, 64), interpolation=InterpolationMode.BILINEAR, antialias=True),
+])
+
 def saved_img_processing(img):
     min_dim_size = min(img.shape[0], img.shape[1])
     resize_transform = torchvision.transforms.Compose(
         [
+            torchvision.transforms.ToTensor(), # uint8/uint16 -> float, channel-first
             torchvision.transforms.CenterCrop((min_dim_size, min_dim_size)),
             torchvision.transforms.Resize(
                 (64, 64), torchvision.transforms.InterpolationMode.BILINEAR
             ),
+            torchvision.transforms.ConvertImageDtype(torch.float32), # ensures dtype=float32, [0,1] for integer inputs
         ]
     )
-
-    img_tensor = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
-    return resize_transform(img_tensor) / 255.0
+    return resize_transform(img).unsqueeze(0)
+    # img_tensor = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
+    # return resize_transform(img_tensor) / 255.0
 
 
 # ---- tiny dict-like wrappers ----

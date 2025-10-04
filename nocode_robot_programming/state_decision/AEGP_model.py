@@ -32,7 +32,8 @@ class AEGP():
 
     def predict(self, image: torch.Tensor, timestep: float | None = None) -> tuple[bool, str]: # returns a branch (y) or -1 as anomaly
         self.videoembedder.model.eval()
-        latent = self.videoembedder.model.encoder(image.unsqueeze(0).unsqueeze(0)) # (1, 1, width, height), 4D
+        with torch.no_grad():
+            latent = self.videoembedder.model.encoder(image.unsqueeze(0).unsqueeze(0)) # (1, 1, width, height), 4D
 
         # self.riskestimator.model.eval()
         # self.riskestimator.likelihood.eval()
@@ -44,21 +45,26 @@ class AEGP():
         #     r = mean + std
         #     pred = r > 0.5
         # return bool(pred), self.y_cls[int(mean)]
+
+        device = next(self.riskestimator.model.parameters()).device
+        x = latent.to(device)
+
+        self.riskestimator.model.eval()
+        self.riskestimator.likelihood.eval()
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            device = next(self.riskestimator.model.parameters()).device
-            Xtest = Xtest.to(device)
-            self.riskestimator.model.eval()
-            self.riskestimator.likelihood.eval()
-            preds = self.riskestimator.likelihood(self.riskestimator.model(Xtest))  # Categorical distribution
-            probs = preds.probs                          # (N, num_classes)
-            labels = probs.argmax(dim=1)
-        return labels, probs
+            # Draw MC samples from the likelihood, shape: (S, N, C)
+            with gpytorch.settings.num_likelihood_samples(128):
+                pred = self.riskestimator.likelihood(self.riskestimator.model(x))
+                probs = pred.probs  # (S, N, C)
+
+        mean_probs = probs.mean(0)          # (N, C)
+        labels = mean_probs.argmax(dim=-1)  # (N,)
+        return mean_probs, self.y_cls[int(labels)]
 
 
 
 class Autoencoder3(nn.Module):
     def forward(self, x):
-        if self.run_batched: return self.bforward(x)
         z = self.encoder(x)
         x_reconstructed = self.decoder(z)
         return x_reconstructed
@@ -126,7 +132,7 @@ class VideoEmbedder():
         u, s, v = torch.svd(x)
         return torch.sum(s)
 
-    def training_loop(self, dataloader: DataLoader, num_epochs: int = 1, patience = 100):    
+    def training_loop(self, dataloader: DataLoader, num_epochs: int = 50, patience = 100):    
         self.model.train()
         best_loss: float = float("inf")
         counter = 0
@@ -212,7 +218,7 @@ class VideoEmbedder():
                 break
 
             pviz.set_description(
-                desc=f"Epoch [{epoch}/{num_epochs}], Trainloss: {train_loss}, ValLoss: {val_loss}"
+                desc=f"Epoch [{epoch}/{num_epochs}], Trainloss: {round(train_loss,3)}, ValLoss: {round(val_loss,6)}"
             )
 
         return epoch, loss
@@ -296,7 +302,7 @@ class GPEstimator:
         Y: (N,) long tensor with class indices 0..num_classes-1
         M: number of inducing points (choose <= N)
         """
-        num_classes = len(list(set(Y)))
+        num_classes = len(set(Y.cpu().numpy()))
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         X = X.to(device)
         Y = Y.long().to(device)
@@ -318,7 +324,7 @@ class GPEstimator:
             optimizer.zero_grad()
             output = self.model(X)           # latent functions (one per class)
             loss = -mll(output, Y)           # Y must be LongTensor
-            loss.backward()
+            loss.backward(retain_graph=True)
             optimizer.step()
 
         self.trained_epoch = train_epoch
