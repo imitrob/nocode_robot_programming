@@ -4,6 +4,7 @@ from typing import Dict, Optional
 from evdev import InputDevice, ecodes
 from spatialmath import UnitQuaternion
 import spatialmath as sm 
+import numpy as np
 
 # >>>>>> EDIT THIS to your by-id symlink (from ls -l /dev/input/by-id)
 DEVICE_PATH = "/dev/input/by-id/usb-Logitech_Wireless_Gamepad_F710_B62E92A9-event-joystick"
@@ -161,12 +162,10 @@ class JoystickConnector():
     def joy_step(self):
         s = self.joy_state
         
-        self.feedback[1] = round(s.axes.get("LX", 0.0),1) *  0.01  # left stick X
-        self.feedback[0] = -round(s.axes.get("LY", 0.0),1) * 0.01  # left stick Y
-        self.feedback[3] = round(s.axes.get("RX", 0.0),1)  * 0.05  # right stick X
-        self.feedback[4] = round(s.axes.get("RY", 0.0),1) *  0.05  # right stick Y
-        
-        # print("Joystick joy_state:", self.feedback)
+        self.feedback[0] = -round(s.axes.get("LX", 0.0),1) *  0.02  # left stick X
+        self.feedback[1] = -round(s.axes.get("LY", 0.0),1) *  0.02  # left stick Y
+        self.feedback[4] = round(s.axes.get("RX", 0.0),1) *  0.2   # right stick X
+        self.feedback[3] = round(s.axes.get("RY", 0.0),1) *  0.1   # right stick Y
 
         if s.buttons.get("A", 0) > 0:
             self.feedback_gripper = "grasp"
@@ -180,12 +179,14 @@ class JoystickConnector():
             self.end = True
 
         if s.buttons.get("LB", 0) > 0:
-            self.feedback[2] = 0.01
+            self.feedback[2] = 0.02
         elif s.buttons.get("RB", 0) > 0:
-            self.feedback[2] = -0.01
+            self.feedback[2] = -0.02
         else:
             self.feedback[2] = 0.
 
+        if sum(np.absolute(self.feedback)) > 0:
+            self.modality_in_control = 'joystick'
 
 if __name__ == "__main__":
     from robot import PandaPy

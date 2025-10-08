@@ -16,23 +16,6 @@ from nocode_robot_programming.feedback_sound import sound_thread
 
 FREQ = 20 # Hz
 
-def transform_leap_to_scene(data, scale=1.0, start=[0.5, 0.0, 0.2]):
-    x, y, z = data[0], data[1], data[2]
-    
-    x_ =  x/1000
-    y_ = -z/1000
-    z_ =  y/1000
-
-    x__ = np.dot([x_,y_,z_], [0,-1, 0])*scale + start[0]
-    y__ = np.dot([x_,y_,z_], [1, 0, 0])*scale + start[1]
-    z__ = np.dot([x_,y_,z_], [0, 0, 1])*scale + start[2]
-
-    data[0] = x__
-    data[1] = y__
-    data[2] = z__
-
-    return data
-
 def _unit(v, eps=1e-9):
     n = np.linalg.norm(v)
     return v / n if n > eps else v*0.0
@@ -174,45 +157,39 @@ class TeleoperationByDrawing(HandListener):
 
     def teleop_step(self):
         if self.is_hand_visible(self.teleop_hand):
+            self.pause = False
             grab_strength = getattr(self.hand_frames[-1], self.teleop_hand).grab_strength
-            if grab_strength < 0.1:
-                self.pause = True # stops the execution
-            else:
-                self.pause = False
-
+            
             trigger = self.is_gesture_activated(self.teleop_hand, self.link_gesture)
             self.teleop_position_compute(trigger)
+        
         else:
             self.is_drawing = False
         
         if self.is_hand_visible(self.teleop_aux_hand):
             grab_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).grab_strength
-            if grab_strength < 0.1:
+            pinch_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).pinch_strength
+            if grab_strength == 0.0:
                 self.pause = True # stops the execution
             else:
                 self.pause = False
 
-            # OPTION: Close gripper proportionally with grab strength:
-            # self.gripper.grasp(width=(1.-grab_strength)/1, speed=0.2, force=10, epsilon_inner=0.04, epsilon_outer=0.04)
-            if grab_strength > 0.8:
-                if not self.gripper.read_once().is_grasped:
+            if grab_strength > 0.8 or pinch_strength > 0.8:
+                if not self.gripper_state.is_grasped:
                     self.feedback_gripper = "grasp"
-            elif grab_strength < 0.2:
+            elif grab_strength < 0.2 or pinch_strength < 0.2:
                 self.feedback_gripper = "open"
 
     def teleop_position_compute(self, trigger):
         self.teleop_trigger = trigger
         if trigger:
             
-            mouse3d = transform_leap_to_scene(
-                getattr(self.hand_frames[-1],self.teleop_hand).palm_pose_list(),
-                self.teleop_scale
-            )
+            mouse3d_ = 0.001 * np.array(getattr(self.hand_frames[-1],self.teleop_hand).palm_pose_list()) 
 
-            palm_vec = np.array(self.hand_frames[-1].l.palm_position()) - np.array(self.hand_frames[-1].l.elbow_position())
-            wrist_vec = np.array(self.hand_frames[-1].l.wrist_position()) - np.array(self.hand_frames[-1].l.elbow_position())
-            rotate_feedback = classify_hand_direction_asym(palm_vec, wrist_vec)
-            # print(ret)
+            mouse3d = np.array([0.,0.,0.])
+            mouse3d[0] = -mouse3d_[0]
+            mouse3d[1] = mouse3d_[2]
+            mouse3d[2] = mouse3d_[1]
 
             if self.teleop_rotate_eef:
                 x,y = self.hand_frames[-1].r.direction()[0:2]
@@ -237,36 +214,41 @@ class TeleoperationByDrawing(HandListener):
                 self.eef_rot = deepcopy(self.eef_rot_scene)
                 self.eef_rot += (angle - self.live_mode_drawing_eef_rot_anchor)
 
-            
             # Save cage
             # goal_pose = np.clip(
             #     goal_pose,
             #     #        [x  , y   , z   , no limits on rotation]
-            #     np.array([0.2, -0.4, 0.03, -10, -10, -10, -10]),
-            #     np.array([0.6,  0.4, 0.4,   10,  10,  10,  10])
+            #     np.array([0.2, -0.4, 0.05, -10, -10, -10, -10]),
+            #     np.array([0.6,  0.4, 0.5,   10,  10,  10,  10])
             # )
 
             current_position = self.panda.get_position() 
-            currect_orientation = self.panda.get_orientation(scalar_first=False)
-            self.feedback[0] = goal_pose[0] - current_position[0]
-            self.feedback[1] = goal_pose[1] - current_position[1]
-            self.feedback[2] = goal_pose[2] - current_position[2]
-
-            if rotate_feedback[0] == 'left':
-                self.feedback[3] = -0.05
-            elif rotate_feedback[0] == 'right':
-                self.feedback[3] = 0.05
-            elif rotate_feedback[0] == 'down':
-                self.feedback[4] = -0.05
-            elif rotate_feedback[0] == 'up':
-                self.feedback[4] = 0.05
+            factor = 0.5
+            self.feedback[0] = (goal_pose[0] - current_position[0]) * factor
+            self.feedback[1] = (goal_pose[1] - current_position[1]) * factor
+            self.feedback[2] = (goal_pose[2] - current_position[2]) * factor
+        else:
+            pitch = self.hand_frames[-1].l.palm_normal.pitch()
+            yaw = self.hand_frames[-1].l.direction.yaw()
+            # print(f"{'left' if pitch < 1.0 else ''}{'right' if pitch > 2.0 else ''} {'up' if yaw < 1.0 else ''}{'down' if yaw > 2.0 else ''}")
+            if pitch < 1.0:
+                self.feedback[4] = -0.2
+            elif pitch > 2.0:
+                self.feedback[4] = 0.2
+            elif yaw < 1.0:
+                self.feedback[3] = -0.1
+            elif yaw > 2.0:
+                self.feedback[3] = 0.1
             else:
                 self.feedback[3] = 0.0
                 self.feedback[4] = 0.0
 
-        else:
             self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]  #self.feedback
             self.is_drawing = False
+
+        if sum(np.absolute(self.feedback)) > 0:
+            self.modality_in_control = 'gestures'
+
 
 def main(args):
     rclpy.init()

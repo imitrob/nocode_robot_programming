@@ -3,7 +3,7 @@ import torch
 
 class StateDeciderBase():
     def __init__(self):
-        self.model = 0
+        self.model = None
         self.y_cls = None
 
     def train(self, X: torch.Tensor, y: torch.Tensor, y_cls): 
@@ -15,8 +15,8 @@ class StateDeciderBase():
         self.model = target_label
         self.y_cls = y_cls
 
-    def predict(self, image: torch.Tensor, timestep: float) -> tuple[bool, int]: # returns a branch (y) or -1 as anomaly
-        return False, int(self.model)
+    def predict(self, image: torch.Tensor, timestep: float) -> tuple[bool, str]: # returns a branch (y) or -1 as anomaly
+        return False, "test"
     
 class StateDeciderMultiModel():
     def __init__(self, modelfactory):

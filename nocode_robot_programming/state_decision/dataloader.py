@@ -21,14 +21,18 @@ class To01FromDtype(torch.nn.Module):
             x = x.float()  # assume already float; DO NOT rescale again
         return x.clamp_(0, 1)
 
-resize_transform = T.Compose([
-    To01FromDtype(),  # <-- do this BEFORE resize if x is float to avoid weird interpolation with huge values
-    T.Lambda(lambda x: x if x.ndim == 3 else x.unsqueeze(0)),  # HxW -> 1xHxW
-    T.CenterCrop(min_dim_size),
-    T.Resize((64, 64), interpolation=InterpolationMode.BILINEAR, antialias=True),
-])
 
 def saved_img_processing(img):
+    min_dim_size = min(img.shape[0], img.shape[1])
+    resize_transform = torchvision.transforms.Compose([
+        To01FromDtype(),  # <-- do this BEFORE resize if x is float to avoid weird interpolation with huge values
+        torchvision.transforms.Lambda(lambda x: x if x.ndim == 3 else x.unsqueeze(0)),  # HxW -> 1xHxW
+        torchvision.transforms.CenterCrop(min_dim_size),
+        torchvision.transforms.Resize((64, 64), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True),
+    ])
+    return resize_transform(img).unsqueeze(0) # ?
+
+def saved_img_processing_old(img):
     min_dim_size = min(img.shape[0], img.shape[1])
     resize_transform = torchvision.transforms.Compose(
         [

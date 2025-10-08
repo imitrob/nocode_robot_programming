@@ -41,3 +41,49 @@ def kill_other_ipykernels(force=False):
 # Preview what would be killed:
 for pid, cmd in list_other_ipykernels():
     print(pid, cmd)
+
+## TODO: FIX ERROR rclpy._rclpy_pybind11.RCLError with the following code
+# Run this in one cell to start ROS in a notebook
+'''
+import threading, atexit
+import rclpy
+from rclpy.context import Context
+from rclpy.signals import SignalHandlerOptions
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
+
+_ctx = Context()
+rclpy.init(context=_ctx, signal_handler_options=SignalHandlerOptions.NO)  # <-- no SIGINT/SIGTERM hooks in notebooks
+
+node = Node("nb_node", context=_ctx)
+executor = SingleThreadedExecutor(context=_ctx)
+executor.add_node(node)
+
+_spin_thread = threading.Thread(target=executor.spin, daemon=True)
+_spin_thread.start()
+
+def _ros_cleanup():
+    # Safe to call multiple times
+    try:
+        executor.remove_node(node)
+    except Exception:
+        pass
+    try:
+        node.destroy_node()
+    except Exception:
+        pass
+    try:
+        executor.shutdown()
+    except Exception:
+        pass
+    try:
+        rclpy.shutdown(context=_ctx, uninstall_handlers=False)
+    except Exception:
+        pass
+    try:
+        _ctx.destroy()
+    except Exception:
+        pass
+
+atexit.register(_ros_cleanup)  # fires on kernel shutdown, too
+'''
