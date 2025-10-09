@@ -157,7 +157,6 @@ class TeleoperationByDrawing(HandListener):
 
     def teleop_step(self):
         if self.is_hand_visible(self.teleop_hand):
-            self.pause = False
             grab_strength = getattr(self.hand_frames[-1], self.teleop_hand).grab_strength
             
             trigger = self.is_gesture_activated(self.teleop_hand, self.link_gesture)
@@ -169,10 +168,19 @@ class TeleoperationByDrawing(HandListener):
         if self.is_hand_visible(self.teleop_aux_hand):
             grab_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).grab_strength
             pinch_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).pinch_strength
-            if grab_strength == 0.0:
-                self.pause = True # stops the execution
-            else:
-                self.pause = False
+            
+            
+            if len(self.hand_frames) >= 10:
+                if self.hand_frames[-1].leapgestures.swipe.present:
+                    self.pause = False
+
+                yaw = getattr(self.hand_frames[-1], self.teleop_aux_hand).direction.yaw()
+                this_frame_stop = getattr(self.hand_frames[-1], self.teleop_aux_hand).is_stop()
+                prev_frame_stop = getattr(self.hand_frames[-10], self.teleop_aux_hand).is_stop()
+                
+                if grab_strength == 0.0 and this_frame_stop and prev_frame_stop and yaw < 1.0:
+                    self.pause = True # stops the execution
+                    self.end = True
 
             if grab_strength > 0.8 or pinch_strength > 0.8:
                 if not self.gripper_state.is_grasped:
@@ -231,14 +239,14 @@ class TeleoperationByDrawing(HandListener):
             pitch = self.hand_frames[-1].l.palm_normal.pitch()
             yaw = self.hand_frames[-1].l.direction.yaw()
             # print(f"{'left' if pitch < 1.0 else ''}{'right' if pitch > 2.0 else ''} {'up' if yaw < 1.0 else ''}{'down' if yaw > 2.0 else ''}")
-            if pitch < 1.0:
+            if self.hand_frames[-1].leapgestures.circle.present and self.hand_frames[-1].leapgestures.circle.clockwise: # yaw < 1.0:
+                self.feedback[3] = -0.1
+            elif self.hand_frames[-1].leapgestures.circle.present and not self.hand_frames[-1].leapgestures.circle.clockwise: #yaw > 2.0:
+                self.feedback[3] = 0.1
+            elif pitch < 1.0:
                 self.feedback[4] = -0.2
             elif pitch > 2.0:
                 self.feedback[4] = 0.2
-            elif yaw < 1.0:
-                self.feedback[3] = -0.1
-            elif yaw > 2.0:
-                self.feedback[3] = 0.1
             else:
                 self.feedback[3] = 0.0
                 self.feedback[4] = 0.0

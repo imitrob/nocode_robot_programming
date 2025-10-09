@@ -57,6 +57,9 @@ class JoystickConnector():
 
         self._joy_thread_control = None
 
+        # pause on click once
+        self.paused_before = False
+
     def _joy_open(self) -> Optional[InputDevice]:
         try:
             return InputDevice(self.joy_path)
@@ -173,7 +176,12 @@ class JoystickConnector():
             self.feedback_gripper = "open"
             
         if s.buttons.get("X", 0) > 0:
-            self.pause = not(self.pause)
+            
+            if not self.paused_before:
+                self.paused_before = True
+                self.pause = not(self.pause)
+        else:
+            self.paused_before = False
 
         if s.buttons.get("Y", 0) > 0:
             self.end = True

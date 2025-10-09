@@ -1,5 +1,7 @@
 import os, signal
 import psutil  # pip install psutil
+import numpy as np
+import trajectory_data
 
 def list_other_ipykernels():
     me = os.getpid()
@@ -87,3 +89,18 @@ def _ros_cleanup():
 
 atexit.register(_ros_cleanup)  # fires on kernel shutdown, too
 '''
+
+def add_tag(filename: str, tag: str):
+    # Load existing .npz
+    data = np.load(f"{trajectory_data.package_path}/trajectories/{filename}.npz")
+
+    # Copy everything into a new dict
+    arrays = {key: data[key] for key in data.files}
+
+    # Add your tag
+    arrays["tag"] = tag
+
+    # Overwrite (or save to a new file if you want safety)
+    np.savez(f"{trajectory_data.package_path}/trajectories/{filename}.npz", **arrays)
+    data.close()
+
