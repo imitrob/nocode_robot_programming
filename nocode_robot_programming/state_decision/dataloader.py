@@ -8,7 +8,35 @@ from pathlib import Path
 import trajectory_data
 
 import torchvision
+import os, glob
+from collections import defaultdict
+from typing import Dict, List, Any
 
+def _ellipsize(items: List[str], max_chars: int = 60, sep: str = ", ") -> str:
+    """Join unique items and ellipsize to keep rows compact."""
+    uniq = list(dict.fromkeys(items))  # stable unique
+    s = sep.join(uniq)
+    if len(s) <= max_chars:
+        return s
+    # keep adding until limit, then ellipsis + count
+    out, total = [], 0
+    for it in uniq:
+        if out:
+            candidate = sep.join(out + [it])
+        else:
+            candidate = it
+        if len(candidate) > max_chars:
+            break
+        out.append(it)
+        total = len(out)
+    hidden = max(0, len(uniq) - total)
+    return (sep.join(out) + (f"{sep}… (+{hidden} more)" if hidden else ""))
+
+def _minmax(nums: List[int]) -> str:
+    if not nums:
+        return "-"
+    mn, mx = min(nums), max(nums)
+    return f"{mn}" if mn == mx else f"{mn}–{mx}"
 
 class To01FromDtype(torch.nn.Module):
     def forward(self, x: torch.Tensor):
@@ -73,6 +101,39 @@ class BatchTimestepView(dict):
         if arr is None: return None
         return np.concatenate([a for a in arr], axis=1)
 
+class Filename():
+    """ With filename: 'peg_pick_branch_at_123_trial_4', it extracts:
+            - task name: 'peg_pick'
+            - offset timestep: 123
+            - trial number: 4
+    """
+    branch_suffix = "branch_at"
+    trial_suffix = "trial"
+    def __init__(self, filename: str):
+        """ filename can be either with or without ".npz" extension
+        """
+        if filename[-4:] == ".npz":
+            self.filename = filename
+            self.name: str = self.filename[:-4] # without npz
+        else:
+            self.filename = filename + ".npz"
+            self.name = filename
+
+        trial_split = self.name.split(f"_{self.trial_suffix}_")
+        before_trial_suffix = trial_split[0]
+        if len(trial_split) > 1:
+            self.trial: int = int(self.name.split(f"_{self.trial_suffix}_")[1])
+        else:
+            self.trial: int = -1 # initial (nominal) demonstration
+
+        branch_split = before_trial_suffix.split(f"_{self.branch_suffix}_")
+        if len(branch_split) > 1:
+            self.offset: int = int(before_trial_suffix.split(f"_{self.branch_suffix}_")[1])
+        else:
+            self.offset: int = 0
+
+        self.task: str = branch_split[0]
+
 # ---- dataset ----
 class TrajectoryDataset(TaskGraph, Dataset):
     """
@@ -92,6 +153,36 @@ class TrajectoryDataset(TaskGraph, Dataset):
             raise FileNotFoundError(f"No .npz files found in {self.dir}")
         self.keys = keys or self.default_keys
 
+        self._task_index = self._build_task_index()
+        print("Found tasks:\n" + self.__str__())
+
+    def _build_task_index(self) -> Dict[str, Dict[str, List]]:
+        """
+        Returns:
+          {
+            task: {
+              'names':   [str, ...],
+              'offsets': [int, ...],
+              'trials':  [int, ...],
+              'files':   [str, ...],
+            },
+            ...
+          }
+        """
+        index = defaultdict(lambda: {"names": [], "offsets": [], "trials": [], "files": []})
+        for f in self.names: 
+            f_ = Filename(f)
+            entry = index[f_.task]
+            entry["names"].append(f_.name)
+            entry["offsets"].append(int(f_.offset))
+            entry["trials"].append(int(f_.trial))
+            entry["files"].append(f)
+        return dict(index)
+
+
+    def __str__(self):
+        return str(self.tasks)
+
     def get_all_names(self, name_skill: str):
         p = Path(f'{trajectory_data.package_path}/trajectories/')
         return [file.name[:-4] for file in p.iterdir() if file.is_file() and file.name.startswith(name_skill)]
@@ -103,6 +194,55 @@ class TrajectoryDataset(TaskGraph, Dataset):
         ''' .../trajectories/new_skill.npz -> new_skill.npz '''
         return [f.split("/")[-1].split(".")[0] for f in self.files]
 
+
+    @property
+    def tasks(self) -> Dict[str, Dict[str, List]]:
+        """Structured view of available tasks (names, offsets, trials, files)."""
+        return self._task_index
+    
+    def __str__(self) -> str:
+        """Pretty, compact table of the available tasks."""
+        if not self._task_index:
+            return "(no tasks)"
+        # Compute column values
+        rows = []
+        for task, rec in sorted(self._task_index.items()):
+            count = len(rec["files"])
+            names = _ellipsize(rec["names"], max_chars=50)
+            trials = _minmax(rec["trials"])
+            offsets = _minmax(rec["offsets"])
+            rows.append((task, str(count), names, trials, offsets))
+
+        # Column headers
+        headers = ("Task", "# Files", "Names (unique)", "Trials", "Offsets")
+        # Determine widths
+        col_widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
+
+        def fmt_row(cols):
+            return " | ".join(c.ljust(col_widths[i]) for i, c in enumerate(cols))
+
+        sep = "-+-".join("-" * w for w in col_widths)
+        out = [fmt_row(headers), sep]
+        out += [fmt_row(r) for r in rows]
+        return "\n".join(out)
+
+    def summary(self) -> Dict[str, dict]:
+        """
+        Returns per-task stats useful for logs/UI:
+          { task: { 'files': N, 'unique_names': K, 'trial_range': (min,max), 'offset_range': (min,max) } }
+        """
+        info = {}
+        for task, rec in self._task_index.items():
+            trials = rec["trials"]
+            offs = rec["offsets"]
+            info[task] = {
+                "files": len(rec["files"]),
+                "unique_names": len(set(rec["names"])),
+                "trial_range": (min(trials), max(trials)) if trials else None,
+                "offset_range": (min(offs), max(offs)) if offs else None,
+            }
+        return info
+    
     def __len__(self):
         return len(self.files)
 

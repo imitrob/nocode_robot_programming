@@ -30,7 +30,9 @@ class AEGP():
         
         self.riskestimator.training_loop(latent, y)
 
-    def predict(self, image: torch.Tensor, timestep: float | None = None) -> tuple[bool, str]: # returns a branch (y) or -1 as anomaly
+    def predict(self, image: torch.Tensor, timestep: float | None = None) -> str:
+        """ See state_decider.py:StateDeciderBase model
+        """
         self.videoembedder.model.eval()
         with torch.no_grad():
             latent = self.videoembedder.model.encoder(image.unsqueeze(0).unsqueeze(0)) # (1, 1, width, height), 4D
@@ -59,7 +61,8 @@ class AEGP():
 
         mean_probs = probs.mean(0)          # (N, C)
         labels = mean_probs.argmax(dim=-1)  # (N,)
-        return mean_probs, self.y_cls[int(labels)]
+        print("mean_probs", mean_probs)
+        return self.y_cls[int(labels)]
 
 
 
@@ -320,7 +323,7 @@ class GPEstimator:
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         mll = gpytorch.mlls.VariationalELBO(self.likelihood, self.model, num_data=Y.size(0))
 
-        for i in range(train_epoch):
+        for _ in tqdm(range(train_epoch)):
             optimizer.zero_grad()
             output = self.model(X)           # latent functions (one per class)
             loss = -mll(output, Y)           # Y must be LongTensor

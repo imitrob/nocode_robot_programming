@@ -180,15 +180,14 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
             self.threshold_by_class[cls] = thr
 
     # ------------- inference -------------
-    def predict(self, image: np.ndarray) -> Tuple[bool, str]:
-        """
-        Returns: (is_known, label_or_-1)
+    def predict(self, image: np.ndarray, timestep: float | None = None) -> str:
+        """ See state_decider.py:StateDeciderBase model
         """
         assert len(self.refs_by_class) > 0, "Call train() first."
         img = self._prep(image)
         kq, dq = self._detect(img)
         if dq is None or len(kq) < self.min_good:
-            return (False, "")
+            return ""
 
         best_cls = None
         best_score = 0.0
@@ -208,10 +207,6 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         thr = self.threshold_by_class.get(best_cls, 0.25)
         if best_score >= thr:
             ret = best_cls if not torch.is_floating_point(best_cls) else int(list(self.refs_by_class.keys()).index(best_cls))
-            return True, self.y_cls[ret]
+            return self.y_cls[ret]
         else:
-            return (False, "")
-
-    def __call__(self, image: np.ndarray, timestep: float) -> Tuple[bool, int]:
-        known, lab = self.predict(image)
-        return (known, lab if isinstance(lab, int) else (-1 if not known else int(lab)))
+            return ""

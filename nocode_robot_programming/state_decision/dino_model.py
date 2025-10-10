@@ -151,10 +151,8 @@ class DINOStateDecider():
         self.train_labels = torch.from_numpy(y_np)
 
     @torch.inference_mode()
-    def predict(self, image: np.ndarray) -> Tuple[bool, str]:
-        """
-        Returns:
-            (anomaly, label_or_minus1)
+    def predict(self, image: np.ndarray, timestep: float | None = None) -> str:
+        """ See state_decider.py:StateDeciderBase model
         """
         assert self.class_centroids is not None, "Call train() first."
 
@@ -179,9 +177,9 @@ class DINOStateDecider():
             except Exception:
                 # if labels were strings, you can map externally; here keep -1 fallback
                 lab_int = int(best_idx)
-            return False, self.y_cls[lab_int]
+            return self.y_cls[lab_int]
         else:
-            return True, ""
+            return ""
 
    # -------- Optional: kNN fallback for edge cases --------
     @torch.inference_mode()

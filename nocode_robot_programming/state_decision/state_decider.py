@@ -15,8 +15,8 @@ class StateDeciderBase():
         self.model = target_label
         self.y_cls = y_cls
 
-    def predict(self, image: torch.Tensor, timestep: float) -> tuple[bool, str]: # returns a branch (y) or -1 as anomaly
-        return False, "test"
+    def predict(self, image: torch.Tensor, timestep: float | None = None) -> str: # returns a skill variation name (y) or "" for anomaly
+        return "test"
     
 class StateDeciderMultiModel():
     def __init__(self, modelfactory):
