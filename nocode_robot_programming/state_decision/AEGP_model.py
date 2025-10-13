@@ -64,6 +64,8 @@ class AEGP():
         print("mean_probs", mean_probs)
         return self.y_cls[int(labels)]
 
+    def predict_many(self, X):
+        return [self.predict(x) for x in X]
 
 
 class Autoencoder3(nn.Module):

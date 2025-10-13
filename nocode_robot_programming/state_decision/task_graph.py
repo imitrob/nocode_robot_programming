@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from typing import List, Dict
 
+from nocode_robot_programming.state_decision.utils import Filename
+
 class TaskGraph:
 
     def get_length(self, skill_name: str):
@@ -10,33 +12,22 @@ class TaskGraph:
 
     def get_task_graph_structure(self, skill_name: str, branch_window: int = 3):
         # names: "user_0_kine_peg_pick", "user_0_kine_peg_pick_0", "user_0_kine_peg_pick_1", "user_0_kine_peg_pick_2", ...
-        names = self.names
-
-        
-        assert skill_name in names, "Not found root skill variant"
-        root_skill_variant = skill_name
-
-        original_len = self.get_length(root_skill_variant)
+        filenames = self.names
+        assert skill_name in filenames, "Not found root skill variant"
 
         # filter the skills with this name
         plot_branches = []
-        for variant_name in names:
+        for file in filenames:
             # the same root name, e.g., "user_0_kine_peg_pick..."
-            if not (skill_name in variant_name):
+            if not (skill_name in file):
                 continue
+            f = Filename(file)
+            plot_branches.append({"name": file, "start": f.offset, "length": self.get_length(file)})
 
-            try:
-                branch_id = int(variant_name.split("_")[-1])
-            except ValueError:
-                print(variant_name, " is discarded as an alternative branch")
-                continue
-
-            plot_branches.append({"name": variant_name, "start": branch_id, "length": self.get_length(variant_name)})
-
-        plot_task_graph(original_len, plot_branches, branch_window, title=f"Task Graph: {skill_name}")
+        plot_task_graph(skill_name, plot_branches, branch_window, title=f"Task Graph: {skill_name}")
 
 def plot_task_graph(
-    original_len: int,
+    skill_name: str,
     branches: List[Dict[str, int]],
     e: int,
     title: str = "Task Graph with Global e-Step Branching Window",
@@ -47,8 +38,8 @@ def plot_task_graph(
 
     Parameters
     ----------
-    original_len : int
-        Number of timesteps for the original (root) branch. Starts at t=0.
+    skill_name : str
+        Name of the original (root) branch.
     branches : list of dict
         Each dict must contain:
           - 'name'  (str): label for the branch (e.g. 'B1')
@@ -71,8 +62,6 @@ def plot_task_graph(
     """
     # Collect all branches, including original
     all_branches = [
-        {"name": "Original", "start": 0, "length": int(original_len)}
-    ] + [
         {"name": str(b["name"]), "start": int(b["start"]), "length": int(b["length"])}
         for b in branches
     ]
@@ -175,8 +164,8 @@ def plot_task_graph(
 if __name__ == "__main__":
     # --- Demo usage (replace with your data) ---
     # Example data:
-    original_len = 30
     example_branches = [
+        {"name": "OG", "start": 0,  "length": 30},
         {"name": "B1", "start": 8,  "length": 15},
         {"name": "B2", "start": 12, "length": 10},
         {"name": "B3", "start": 20, "length": 8},
@@ -185,7 +174,7 @@ if __name__ == "__main__":
     e = 3
 
     # Plot
-    plot_task_graph(original_len, example_branches, e, title="Task Graph (Demo)")
+    plot_task_graph("OG", example_branches, e, title="Task Graph (Demo)")
 
     plt.show()
     # Show the image in the notebook output and also confirm saved path

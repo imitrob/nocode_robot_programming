@@ -1,83 +1,15 @@
 from __future__ import annotations
-import os, glob, numpy as np, torch
+import os, glob, numpy as np, torch, time
+from typing import Dict, List, Any
 from torch.utils.data import Dataset, DataLoader
+from collections import defaultdict
+from pathlib import Path
 import cv2 as cv
 
-from nocode_robot_programming.state_decision.task_graph import TaskGraph
-from pathlib import Path
 import trajectory_data
+from nocode_robot_programming.state_decision.task_graph import TaskGraph
+from nocode_robot_programming.state_decision.utils import Filename, _ellipsize, _minmax, To01FromDtype, saved_img_processing, saved_img_processing_old
 
-import torchvision
-import os, glob
-from collections import defaultdict
-from typing import Dict, List, Any
-
-def _ellipsize(items: List[str], max_chars: int = 60, sep: str = ", ") -> str:
-    """Join unique items and ellipsize to keep rows compact."""
-    uniq = list(dict.fromkeys(items))  # stable unique
-    s = sep.join(uniq)
-    if len(s) <= max_chars:
-        return s
-    # keep adding until limit, then ellipsis + count
-    out, total = [], 0
-    for it in uniq:
-        if out:
-            candidate = sep.join(out + [it])
-        else:
-            candidate = it
-        if len(candidate) > max_chars:
-            break
-        out.append(it)
-        total = len(out)
-    hidden = max(0, len(uniq) - total)
-    return (sep.join(out) + (f"{sep}… (+{hidden} more)" if hidden else ""))
-
-def _minmax(nums: List[int]) -> str:
-    if not nums:
-        return "-"
-    mn, mx = min(nums), max(nums)
-    return f"{mn}" if mn == mx else f"{mn}–{mx}"
-
-class To01FromDtype(torch.nn.Module):
-    def forward(self, x: torch.Tensor):
-        # x: (C,H,W) or (H,W). Map to [0,1] based on dtype/range.
-        if x.dtype == torch.uint8:
-            x = x.float() / 255.0
-        elif x.dtype == torch.uint16:
-            x = x.float() / 65535.0
-        else:
-            x = x.float()  # assume already float; DO NOT rescale again
-        return x.clamp_(0, 1)
-
-
-def saved_img_processing(img):
-    min_dim_size = min(img.shape[0], img.shape[1])
-    resize_transform = torchvision.transforms.Compose([
-        To01FromDtype(),  # <-- do this BEFORE resize if x is float to avoid weird interpolation with huge values
-        torchvision.transforms.Lambda(lambda x: x if x.ndim == 3 else x.unsqueeze(0)),  # HxW -> 1xHxW
-        torchvision.transforms.CenterCrop(min_dim_size),
-        torchvision.transforms.Resize((64, 64), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True),
-    ])
-    return resize_transform(img).unsqueeze(0) # ?
-
-def saved_img_processing_old(img):
-    min_dim_size = min(img.shape[0], img.shape[1])
-    resize_transform = torchvision.transforms.Compose(
-        [
-            torchvision.transforms.ToTensor(), # uint8/uint16 -> float, channel-first
-            torchvision.transforms.CenterCrop((min_dim_size, min_dim_size)),
-            torchvision.transforms.Resize(
-                (64, 64), torchvision.transforms.InterpolationMode.BILINEAR
-            ),
-            torchvision.transforms.ConvertImageDtype(torch.float32), # ensures dtype=float32, [0,1] for integer inputs
-        ]
-    )
-    return resize_transform(img).unsqueeze(0)
-    # img_tensor = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
-    # return resize_transform(img_tensor) / 255.0
-
-
-# ---- tiny dict-like wrappers ----
 class TimestepView(dict):
     """One rollout @ a single timestep with a convenience .image (H,W) uint8."""
     @property
@@ -101,50 +33,16 @@ class BatchTimestepView(dict):
         if arr is None: return None
         return np.concatenate([a for a in arr], axis=1)
 
-class Filename():
-    """ With filename: 'peg_pick_branch_at_123_trial_4', it extracts:
-            - task name: 'peg_pick'
-            - offset timestep: 123
-            - trial number: 4
-    """
-    branch_suffix = "branch_at"
-    trial_suffix = "trial"
-    def __init__(self, filename: str):
-        """ filename can be either with or without ".npz" extension
-        """
-        if filename[-4:] == ".npz":
-            self.filename = filename
-            self.name: str = self.filename[:-4] # without npz
-        else:
-            self.filename = filename + ".npz"
-            self.name = filename
-
-        trial_split = self.name.split(f"_{self.trial_suffix}_")
-        before_trial_suffix = trial_split[0]
-        if len(trial_split) > 1:
-            self.trial: int = int(self.name.split(f"_{self.trial_suffix}_")[1])
-        else:
-            self.trial: int = -1 # initial (nominal) demonstration
-
-        branch_split = before_trial_suffix.split(f"_{self.branch_suffix}_")
-        if len(branch_split) > 1:
-            self.offset: int = int(before_trial_suffix.split(f"_{self.branch_suffix}_")[1])
-        else:
-            self.offset: int = 0
-
-        self.task: str = branch_split[0]
-
-# ---- dataset ----
 class TrajectoryDataset(TaskGraph, Dataset):
     """
     Each item is one rollout (skill) loaded from a .npz file.
     Expected keys: ['traj','ori','grip','img','img_feedback_flag',
                     'spiral_flag','risk_flag','safe_flag',
-                    'novel_risk_flag','novel_safe_flag']
+                    'novel_risk_flag','novel_safe_flag','tag']
     """
     default_keys = ['traj','ori','grip','img',
                     'img_feedback_flag','spiral_flag','risk_flag',
-                    'safe_flag','novel_risk_flag','novel_safe_flag']
+                    'safe_flag','novel_risk_flag','novel_safe_flag','tag']
 
     def __init__(self, package_path, keys=None):
         self.dir = os.path.join(package_path, "trajectories")
@@ -169,7 +67,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
             ...
           }
         """
-        index = defaultdict(lambda: {"names": [], "offsets": [], "trials": [], "files": []})
+        index = defaultdict(lambda: {"names": [], "offsets": [], "trials": [], "files": [], "tags": []})
         for f in self.names: 
             f_ = Filename(f)
             entry = index[f_.task]
@@ -177,6 +75,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
             entry["offsets"].append(int(f_.offset))
             entry["trials"].append(int(f_.trial))
             entry["files"].append(f)
+            entry["tags"].append(self[f]['tag'])
         return dict(index)
 
 
@@ -246,7 +145,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
     def __len__(self):
         return len(self.files)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: str | slice | int):
         if isinstance(idx, str) and idx in self.names:
             idx = self.names.index(idx) # idx string -> idx id (int)
         
@@ -259,7 +158,9 @@ class TrajectoryDataset(TaskGraph, Dataset):
             if k not in data: 
                 continue
             v = data[k]
-            if k == 'img':            # (T,H,W) -> torch.float32 (T,1,H,W) in [0,1]
+            if k == 'tag':
+                v = str(v)
+            elif k == 'img':            # (T,H,W) -> torch.float32 (T,1,H,W) in [0,1]
                 v = torch.from_numpy(v).float()
                 if v.ndim == 3: v = v[:, None, :, :]
                 v = v / 255.0
@@ -329,7 +230,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
     def play_video(self, idx: int, fps: int = 30):
         delay = max(1, int(1000 / fps))  # milliseconds
         for i in range(len(self[idx]['img'])):
-            f = self.timestep(idx=0, t=i).image
+            f = self.timestep(idx=idx, t=i).image
             cv.imshow('video', f)
             if cv.waitKey(delay) & 0xFF == 27:  # ESC to quit
                 break
@@ -343,10 +244,9 @@ class TrajectoryDataset(TaskGraph, Dataset):
         y_names = []
 
         for i, file in enumerate(file_names):
-            try:
-                branch_timestep = int(file.split("_")[-1])
-            except ValueError:
-                branch_timestep = 0
+            f = Filename(file)
+            branch_timestep = f.offset
+
             idx = self.files.index(f"{self.dir}/{file}.npz")
             nsamples = len(self[idx]['img'])
             
@@ -373,3 +273,47 @@ class ImageDatasetView(Dataset):
     
     def y_decode(self, y_int):
         return self.y_cls[y_int]
+    
+    def image(self, i: int, scale=10.0):
+        img = self.X[i]  # (1,H,W) float32 in [0,1]
+        if img is None: return None
+        arr = img.squeeze(0).detach().cpu().numpy()
+        
+        label = f"y={self.y_int[i]}"
+
+        new_size = (int(self.w * scale), int(self.h * scale))
+
+        cv.putText(arr, label, (0, 12), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1, 2)
+
+        arr = cv.resize(arr, new_size, interpolation=cv.INTER_NEAREST)
+
+        
+        return (arr * 255).astype(np.uint8)
+    
+    @property
+    def n(self):
+        return len(self.X)
+    @property
+    def w(self):
+        return self.X[0].shape[0]
+    @property
+    def h(self):
+        return self.X[0].shape[1]
+    
+    def show_image(self, i: int, scale: float = 10.0, timeout=3000):
+        cv.imshow('video', self.image(i, scale))
+        t0 = time.time()
+        while True:
+            k = cv.waitKey(20) & 0xFF
+            if k == 27: # or cv.getWindowProperty('video', 0) < 1: # or (time.time()-t0)*1000 > timeout:
+                break
+        cv.destroyAllWindows()
+        cv.waitKey(1)
+
+    def play_video(self, fps: int=60, scale: float = 10.0):
+        delay = max(1, int(1000 / fps))  # milliseconds
+        for i in range(self.n):
+            cv.imshow('video', self.image(i, scale))
+            if cv.waitKey(delay) & 0xFF == 27:  # ESC to quit
+                break
+        cv.destroyAllWindows()

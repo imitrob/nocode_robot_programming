@@ -18,6 +18,10 @@ class StateDeciderBase():
     def predict(self, image: torch.Tensor, timestep: float | None = None) -> str: # returns a skill variation name (y) or "" for anomaly
         return "test"
     
+    def predict_many(self, X):
+        return [self.predict(x) for x in X]
+
+
 class StateDeciderMultiModel():
     def __init__(self, modelfactory):
         self.modelfactory = modelfactory

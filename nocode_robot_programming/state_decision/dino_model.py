@@ -95,12 +95,7 @@ class DINOStateDecider():
             batch_size = self.batch_size
         feats = []
         N = len(X)
-        # autocast for mps/cuda (cuda AMP gives most benefit)
-        autocast_ctx = (
-            torch.cuda.amp.autocast(enabled=self.device.type == "cuda")
-            if self.device.type == "cuda" else torch.autocast(device_type="cpu", enabled=False)
-        )
-        with autocast_ctx:
+        with torch.amp.autocast(self.device.type):
             for i in range(0, N, batch_size):
                 batch_np = X[i:i+batch_size]
                 xb = self._prep_batch(list(batch_np))
@@ -158,7 +153,7 @@ class DINOStateDecider():
 
         # 1) Embed single image
         xb = self._prep_batch([image])
-        with torch.cuda.amp.autocast(enabled=self.device.type == "cuda"):
+        with torch.amp.autocast(self.device.type):
             feat = self._forward_features(xb)[0].float().cpu()   # [D]
 
         # 2) Cosine to all centroids
@@ -190,7 +185,7 @@ class DINOStateDecider():
         """
         assert self.train_embeddings is not None, "Train embeddings not available."
         xb = self._prep_batch([image])
-        with torch.cuda.amp.autocast(enabled=self.device.type == "cuda"):
+        with torch.amp.autocast(self.device.type):
             feat = self._forward_features(xb)[0].float().cpu()   # [D]
         sims = (self.train_embeddings @ feat)                    # [N]
         topk = torch.topk(sims, k=min(k, sims.numel()), largest=True)
@@ -210,3 +205,5 @@ class DINOStateDecider():
         return False, -1
 
 
+    def predict_many(self, X):
+        return [self.predict(x) for x in X]

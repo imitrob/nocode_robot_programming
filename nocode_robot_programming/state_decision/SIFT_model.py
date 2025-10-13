@@ -210,3 +210,6 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
             return self.y_cls[ret]
         else:
             return ""
+        
+    def predict_many(self, X):
+        return [self.predict(x) for x in X]
