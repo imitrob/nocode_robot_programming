@@ -15,6 +15,9 @@ class AEGP():
         self.riskestimator = GPEstimator()
         self.y_cls = None
 
+        # (1/3) TMP: PLOT PROBS
+        self.mean_probs = []
+
     def train(self, X: torch.Tensor, y: torch.Tensor, y_cls):
         self.y_cls = y_cls 
         """ X.shape = (samples, width, height), y.shape = (samples, ) """
@@ -61,12 +64,22 @@ class AEGP():
 
         mean_probs = probs.mean(0)          # (N, C)
         labels = mean_probs.argmax(dim=-1)  # (N,)
-        print("mean_probs", mean_probs)
+
+        # (2/3) TMP: PLOT PROBS
+        self.mean_probs.append([float(mean_probs[0][0]), float(mean_probs[0][1])])
+        
         return self.y_cls[int(labels)]
 
     def predict_many(self, X):
-        return [self.predict(x) for x in X]
+        r = [self.predict(x) for x in X]
+        
+        # (3/3) TMP: PLOT PROBS
+        import matplotlib.pyplot as plt
+        import numpy as np
+        plt.hist(np.array(self.mean_probs), bins=10)
+        plt.legend(self.y_cls)
 
+        return r
 
 class Autoencoder3(nn.Module):
     def forward(self, x):
@@ -213,12 +226,6 @@ class VideoEmbedder():
                 counter += 1
 
             if counter >= patience:  # Stop if no improvement for `patience` epochs
-                print("Early stopping triggered")
-                ret = "stop"
-            else:
-                ret = "continue"
-
-            if ret == "stop":
                 print(f"No improvement for {patience} epochs. Stopping training.")
                 break
 

@@ -8,7 +8,7 @@ from collections import defaultdict
 from typing import Tuple, Optional, List
 
 class DINOStateDecider():
-    """ Classify image to one of known branches (labels) using DINOv2 embeddings.
+    """ Classify image to one of known `skill variations` (labels) using DINOv2 embeddings.
     If the best cosine similarity to any class centroid is below that class's
     learned threshold, return anomaly (-1).
     """
@@ -17,7 +17,6 @@ class DINOStateDecider():
                  use_cls_token: bool = True,
                  batch_size: int = 64,
                  percent_keep: float = 0.05,    # keep rate for anomaly gate: 5th percentile of positives
-                 max_side: int = 224,           # we already center-crop to 224; keep for future custom transforms
                  ):
         """
         Args:
