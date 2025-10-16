@@ -14,7 +14,7 @@ class DINOStateDecider():
     """
     def __init__(self,
                  dino_variant: str = "dinov2_vits14",
-                 use_cls_token: bool = True,
+                 use_cls_token: bool = False,
                  batch_size: int = 64,
                  percent_keep: float = 0.05,    # keep rate for anomaly gate: 5th percentile of positives
                  ):
@@ -31,7 +31,6 @@ class DINOStateDecider():
 
         self.device = torch.device("cuda") # we have only cuda machines
 
-        # --- model ---
         # Note: torch.hub will download on first use; keep it outside hot loop
         self.model = torch.hub.load('facebookresearch/dinov2', dino_variant)
         self.model.eval().to(self.device)
@@ -56,6 +55,11 @@ class DINOStateDecider():
         self.class_thresholds: Optional[torch.Tensor] = None # [C] cosine threshold per class (float)
         self.train_embeddings: Optional[torch.Tensor] = None # [N, D] (kept if you want kNN fallback)
         self.train_labels: Optional[torch.Tensor] = None     # [N]
+
+
+        self.pos_proto = None
+        self.neg_proto = None
+
 
     @torch.inference_mode()
     def _forward_features(self, x: torch.Tensor) -> torch.Tensor:
