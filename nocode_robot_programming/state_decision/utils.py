@@ -181,6 +181,7 @@ class To01FromDtype(torch.nn.Module):
 
 def saved_img_processing(img):
     min_dim_size = min(img.shape[-2], img.shape[-1])
+    min_dim_size = 90
     resize_transform = torchvision.transforms.Compose([
         To01FromDtype(),  # <-- do this BEFORE resize if x is float to avoid weird interpolation with huge values
         torchvision.transforms.Lambda(lambda x: x if x.ndim == 3 else x.unsqueeze(0)),  # HxW -> 1xHxW
