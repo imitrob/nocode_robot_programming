@@ -75,7 +75,10 @@ class TrajectoryDataset(TaskGraph, Dataset):
             entry["offsets"].append(int(f_.offset))
             entry["trials"].append(int(f_.trial))
             entry["files"].append(f)
-            entry["tags"].append(self[f]['tag'])
+            if 'tag' in self[f].keys():
+                entry["tags"].append(self[f]['tag'])
+            else:
+                entry["tags"].append("")
         return dict(index)
 
 

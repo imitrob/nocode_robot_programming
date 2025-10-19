@@ -26,7 +26,7 @@ class AEGP():
         Xpp = torch.concatenate([X[1:].clone(), X[-1:].clone()])
         X_ = torch.stack([X, Xpp]).swapaxes(0,1) # X_.shape = (samples, 2, width, height)
 
-        self.videoembedder.training_loop(DataLoader(X_))
+        self.videoembedder.training_loop(DataLoader(X_, batch_size=8, shuffle=True, drop_last=True))
         self.videoembedder.model.eval()
         latent = torch.tensor([]).cuda()
         for i in range(len(X_)):
@@ -159,6 +159,9 @@ class VideoEmbedder():
         return torch.sum(s)
 
     def training_loop(self, dataloader: DataLoader, num_epochs: int = 50, patience = 100):    
+
+        self.losses1,self.losses2 = [], []
+
         self.model.train()
         best_loss: float = float("inf")
         counter = 0
@@ -240,6 +243,8 @@ class VideoEmbedder():
             pviz.set_description(
                 desc=f"Epoch [{epoch}/{num_epochs}], Trainloss: {round(train_loss,3)}, ValLoss: {round(val_loss,6)}"
             )
+            self.losses1.append(train_loss)
+            self.losses2.append(val_loss)
 
         return epoch, loss
 
