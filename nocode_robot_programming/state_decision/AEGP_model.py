@@ -20,20 +20,27 @@ class AEGP():
         # (1/3) TMP: PLOT PROBS
         self.mean_probs = []
 
-    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls):
-        self.y_cls = y_cls 
+    def __str__(self):
+        return self.__class__.__name__
+
+    def _dataset_prepare(self, X):
         """ X.shape = (samples, width, height), y.shape = (samples, ) """
         Xpp = torch.concatenate([X[1:].clone(), X[-1:].clone()])
-        X_ = torch.stack([X, Xpp]).swapaxes(0,1) # X_.shape = (samples, 2, width, height)
+        return torch.stack([X, Xpp]).swapaxes(0,1) # X_.shape = (samples, 2, width, height)
 
-        self.videoembedder.training_loop(DataLoader(X_, batch_size=8, shuffle=True, drop_last=True))
+    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls: list[str], only_videoembed: bool = False):
+        self.y_cls = y_cls 
+        self.postprocessed_X = self._dataset_prepare(X)
+
+        self.videoembedder.training_loop(DataLoader(self.postprocessed_X, batch_size=32, shuffle=True, drop_last=True))
         self.videoembedder.model.eval()
-        latent = torch.tensor([]).cuda()
-        for i in range(len(X_)):
-            latent_ = self.videoembedder.model.encoder(X_[i:i+1,0:1,:,:]) # extract image (discards next_image). 4D
-            latent = torch.concatenate([latent, latent_])
-        
-        self.riskestimator.training_loop(latent, y)
+        if not only_videoembed:
+            latent = torch.tensor([]).cuda()
+            for i in range(len(self.postprocessed_X)):
+                latent_ = self.videoembedder.model.encode(self.postprocessed_X[i:i+1,0:1,:,:]) # extract image (discards next_image). 4D
+                latent = torch.concatenate([latent, latent_])
+            
+            self.riskestimator.training_loop(latent, y, len(y_cls))
 
     def predict(self, image: torch.Tensor, timestep: float | None = None) -> str:
         """ See state_decider.py:StateDeciderBase model
@@ -85,6 +92,7 @@ class AEGP():
         import matplotlib.pyplot as plt
         import numpy as np
         plt.hist(np.array(self.mean_probs), bins=10)
+        self.mean_probs = []
         plt.legend(self.y_cls)
 
         return r
@@ -142,6 +150,25 @@ class Autoencoder3(nn.Module):
             nn.ConvTranspose2d(64, 1, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.Sigmoid()
         )
+
+    def _safe_apply(self, module, x, chunk_size=None):
+        bs = x.size(0)
+        c = chunk_size or bs
+        while True:
+            try:
+                outs = [module(x[i:i+c]) for i in range(0, bs, c)]
+                return torch.cat(outs, dim=0)
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower() and c > 1:
+                    print(f"out of memory -> lowering batch size {c} to {c//2}")
+                    c = max(1, c // 2)
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    continue
+                raise
+            
+    def encode(self, x, chunk_size=None):
+        return self._safe_apply(self.encoder, x, chunk_size)
 
 class VideoEmbedder():
     def __init__(self):
@@ -279,13 +306,12 @@ class GPEstimator:
     def __init__(self):
         super(GPEstimator, self).__init__()
     
-    def training_loop(self, X, Y, train_epoch=400, lr=0.01, M=128):
+    def training_loop(self, X, Y, num_classes: int, train_epoch=400, lr=0.01, M=128):
         """
         X: (N, D) float tensor
         Y: (N,) long tensor with class indices 0..num_classes-1
         M: number of inducing points (choose <= N)
         """
-        num_classes = len(set(Y.cpu().numpy()))
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         X = X.to(device)
         Y = Y.long().to(device)
