@@ -9,6 +9,8 @@ import cv2 as cv
 import trajectory_data
 from nocode_robot_programming.state_decision.task_graph import TaskGraph
 from nocode_robot_programming.state_decision.utils import Filename, _ellipsize, _minmax, To01FromDtype, saved_img_processing, saved_img_processing_old
+from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gray_video_cuda_captions
+from IPython.display import display, HTML
 
 class TimestepView(dict):
     """One rollout @ a single timestep with a convenience .image (H,W) uint8."""
@@ -320,3 +322,9 @@ class ImageDatasetView(Dataset):
             if cv.waitKey(delay) & 0xFF == 27:  # ESC to quit
                 break
         cv.destroyAllWindows()
+    
+    def showcase(self, fps: int = 20, scale: int = 5):
+        display(show_gray_video_cuda(self.X, fps=fps, scale=scale))
+
+    def showcase_captions(self, fps: int = 20, scale: int = 5):
+        display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=self.y_int))

@@ -80,3 +80,95 @@ def show_gray_video_cuda(frames_cuda: torch.Tensor, fps: int = 20, repeat: bool 
     )
     plt.close(fig)  # avoid double display
     return HTML(f'<div style="margin:0;padding:0;line-height:0">{anim.to_jshtml()}</div>')
+
+
+import torch
+import matplotlib.pyplot as plt
+from matplotlib import animation
+from IPython.display import HTML
+from typing import Sequence, Optional, Callable, Union
+
+def show_gray_video_cuda_captions(
+    frames_cuda: torch.Tensor,
+    fps: int = 20,
+    repeat: bool = True,
+    scale: float = 1.0,
+    captions: Optional[Union[Sequence[str], Callable[[int], str]]] = None,
+    caption_xy: tuple = (0.02, 0.95),     # (x,y) in axes coords (0..1)
+    caption_fontsize: Optional[int] = None,
+    caption_color: str = "white",
+    caption_bbox: Optional[dict] = None,  # e.g. {"facecolor":"black","alpha":0.6,"pad":0.4,"boxstyle":"round"}
+):
+    """
+    Play a grayscale video tensor [T, H, W] (float32, 0..1) that lives on CUDA.
+    Renders inline using JS (no external encoders). Supports per-frame captions.
+
+    captions:
+      - sequence of length T with strings, OR
+      - callable: captions(i) -> str
+    """
+    assert frames_cuda.ndim == 3, "Expected [T, H, W] grayscale tensor"
+
+    # Move to CPU and convert to uint8 for fast imshow
+    frames_u8 = (frames_cuda.detach().clamp(0, 1) * 255).round() \
+                .to(torch.uint8).cpu().numpy()  # [T, H, W]
+
+    T, H, W = frames_u8.shape
+
+    # Resolve captions list (or None)
+    captions_list: Optional[Sequence[str]] = None
+    if captions is not None:
+        if isinstance(captions, torch.Tensor):
+            captions_list = [str(captions[i].item()) for i in range(T)]
+        elif callable(captions):
+            captions_list = [str(captions(i)) for i in range(T)]
+        else:
+            captions_list = list(captions)
+            assert len(captions_list) == T, "captions must have length T"
+
+    # Figure/axes sized to pixel dimensions (scaled)
+    dpi = 100
+    fig, ax = plt.subplots(
+        figsize=(scale * W / dpi, scale * H / dpi),
+        constrained_layout=False
+    )
+    fig.patch.set_alpha(0)
+    ax.set_position([0, 0, 1, 1])
+    ax.set_axis_off()
+
+    # Image artist
+    im = ax.imshow(frames_u8[0], cmap='gray', animated=True, vmin=0, vmax=255)
+    ax.set_xlim(-0.5, W - 0.5)
+    ax.set_ylim(H - 0.5, -0.5)
+
+    # Caption artist (optional)
+    txt = None
+    if captions_list is not None:
+        if caption_bbox is None:
+            caption_bbox = {"facecolor": "black", "alpha": 0.6, "pad": 0.4, "boxstyle": "round"}
+        if caption_fontsize is None:
+            # heuristic based on height
+            caption_fontsize = max(10, int(0.045 * H * scale))
+
+        txt = ax.text(
+            caption_xy[0], caption_xy[1],
+            captions_list[0],
+            transform=ax.transAxes,
+            va="top", ha="left",
+            fontsize=caption_fontsize,
+            color=caption_color,
+            bbox=caption_bbox,
+            animated=True  # important for blitting
+        )
+
+    def _update(i):
+        im.set_array(frames_u8[i])
+        if txt is not None:
+            txt.set_text(captions_list[i])
+        return (im, txt) if txt is not None else (im,)
+
+    anim = animation.FuncAnimation(
+        fig, _update, frames=T, interval=1000.0 / fps, blit=True, repeat=repeat
+    )
+    plt.close(fig)  # avoid double display
+    return HTML(f'<div style="margin:0;padding:0;line-height:0">{anim.to_jshtml()}</div>')

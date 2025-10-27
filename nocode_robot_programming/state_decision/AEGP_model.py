@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 
 import gpytorch
 from tqdm import tqdm
-
+from copy import deepcopy
 
 class AEGP():
     """ Autoencoder + Gaussian Process """
@@ -28,11 +28,13 @@ class AEGP():
         Xpp = torch.concatenate([X[1:].clone(), X[-1:].clone()])
         return torch.stack([X, Xpp]).swapaxes(0,1) # X_.shape = (samples, 2, width, height)
 
-    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls: list[str], only_videoembed: bool = False):
+    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls: list[str], only_videoembed: bool = False, dupln: int = 20):
         self.y_cls = y_cls 
         self.postprocessed_X = self._dataset_prepare(X)
 
-        self.videoembedder.training_loop(DataLoader(self.postprocessed_X, batch_size=32, shuffle=True, drop_last=True))
+        postprocessed_X_fortraing = torch.vstack([self.postprocessed_X] * dupln)
+
+        self.videoembedder.training_loop(DataLoader(postprocessed_X_fortraing, batch_size=1, shuffle=True, drop_last=True))
         self.videoembedder.model.eval()
         if not only_videoembed:
             latent = torch.tensor([]).cuda()
