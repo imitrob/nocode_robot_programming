@@ -97,3 +97,130 @@ def d1_peg_pick(
     datasets.append([d_test, d_train, "Peg Pick dataset, 8 train trials, 2 test trials, window=10"])
 
     return datasets
+
+def d2_peg_pick(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 76, 
+        tags = ['d2_peg_pick', 'd2_peg_pick_branch_at_76'] # label: 0, 1  
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    d_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick', 
+                    'd2_peg_pick_branch_at_76', 
+                    'd2_peg_pick_trial_2'])
+    d_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick_trial_0',
+                    'd2_peg_pick_trial_1',
+                    'd2_peg_pick_trial_3',
+                    'd2_peg_pick_trial_4'])
+
+    d2_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick', 
+                    'd2_peg_pick_branch_at_76', 
+                    'd2_peg_pick_trial_2', 
+                    'd2_peg_pick_trial_0'])
+
+    d2_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick_trial_1', 
+                    'd2_peg_pick_trial_3',
+                    'd2_peg_pick_trial_4'])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([d_train, d_test, "Peg Pick dataset, 2 train trials, 4 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([d2_train, d2_test, "Peg Pick dataset, 3 train trials, 3 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([d_test, d_train, "Peg Pick dataset, 4 train trials, 2 test trials, window=10"])
+
+    return datasets
+
+
+def d1_probe(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 51, 
+        tags = ['d1_probe', 'd1_probe_branch_at_51'] # label: 0, 1  
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    d_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe', 
+                    'd1_probe_branch_at_51',
+                    'd1_probe_trial_6'])
+    d_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe_trial_0',
+                    'd1_probe_trial_1',
+                    'd1_probe_trial_2',
+                    'd1_probe_trial_3',
+                    'd1_probe_trial_4',
+                    'd1_probe_trial_5'])
+
+    d2_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe', 
+                    'd1_probe_branch_at_51', 
+                    'd1_probe_trial_6',
+                    'd1_probe_trial_0', 
+                    'd1_probe_trial_1', 
+                    'd1_probe_trial_2'])
+
+    d2_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe_trial_3', 
+                    'd1_probe_trial_4', 
+                    'd1_probe_trial_5'])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([d_train, d_test, "Probe dataset, 2 train trials, 6 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([d2_train, d2_test, "Probe dataset, 5 train trials, 3 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([d_test, d_train, "Probe dataset, 6 train trials, 2 test trials, window=10"])
+
+    return datasets
+
+def d2_probe(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 103, 
+        tags = ['d2_probe', 'd2_probe_branch_at_103'] # label: 0, 1  
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    d_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe', 
+                    'd2_probe_branch_at_103',
+                    'd2_probe_trial_6'])
+    d_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe_trial_0',
+                    'd2_probe_trial_1',
+                    'd2_probe_trial_2',
+                    'd2_probe_trial_3',
+                    'd2_probe_trial_4',
+                    'd2_probe_trial_5'])
+
+    d2_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe', 
+                    'd2_probe_branch_at_103', 
+                    'd2_probe_trial_6',
+                    'd2_probe_trial_0', 
+                    'd2_probe_trial_3'])
+
+    d2_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe_trial_1', 
+                    'd2_probe_trial_2', 
+                    'd2_probe_trial_5',
+                    'd2_probe_trial_4', 
+                    ])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([d_train, d_test, "Probe dataset, 2 train trials, 6 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([d2_train, d2_test, "Probe dataset, 4 train trials, 4 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([d_test, d_train, "Probe dataset, 6 train trials, 2 test trials, window=10"])
+
+    return datasets
