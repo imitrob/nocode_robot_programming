@@ -63,6 +63,9 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         self.refs_by_class: Dict[Any, List[Dict[str, Any]]] = {}
         self.threshold_by_class: Dict[Any, float] = {}
 
+    def __str__(self):
+        return str(self.__class__.__name__)
+
     # ------------- utils -------------
     def _prep(self, img: np.ndarray) -> np.ndarray:
         if img.ndim == 3:

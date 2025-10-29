@@ -179,14 +179,13 @@ class To01FromDtype(torch.nn.Module):
         return x.clamp_(0, 1)
 
 
-def saved_img_processing(img):
+def saved_img_processing(img, w_h=(224,224)):
     min_dim_size = min(img.shape[-2], img.shape[-1])
-    min_dim_size = 90
     resize_transform = torchvision.transforms.Compose([
         To01FromDtype(),  # <-- do this BEFORE resize if x is float to avoid weird interpolation with huge values
         torchvision.transforms.Lambda(lambda x: x if x.ndim == 3 else x.unsqueeze(0)),  # HxW -> 1xHxW
         torchvision.transforms.CenterCrop(min_dim_size),
-        torchvision.transforms.Resize((64, 64), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True),
+        torchvision.transforms.Resize((w_h[0], w_h[1]), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True),
     ])
     return resize_transform(img).unsqueeze(0) # ?
 
@@ -311,7 +310,22 @@ def plot_bars_per_model(values: np.ndarray, x_labels: List[str], model_name: str
     x = np.arange(len(x_labels))
     fig = plt.figure(figsize=(max(6, len(x_labels)*0.8), 4.8))
     ax = fig.add_subplot(111)
-    ax.bar(x, values)
+    
+    x = list(x)
+    x.append(x[-1]+1)
+    mean = values.mean()
+    values = list(values)
+    values.append(mean)
+    x_labels = list(x_labels)
+    x_labels.append("mean")
+
+    colors = ["blue"] * len(x_labels)
+    colors[-1] = "orange"
+
+    ax.bar(x, values, color=colors)
+    fig.text(0.93, 0.9, f'{mean:.0f}%', ha='center', va='bottom')
+
+
     ax.set_xticks(x)
     ax.set_xticklabels(x_labels, rotation=45, ha="right")
     ax.set_ylim(0, 100)
@@ -352,7 +366,7 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
     # Heatmaps
     plot_heatmap(train, tasks, models, "Train Accuracy (%)", out_path / "heatmap_train.png"); ipt.save()
     plot_heatmap(test, tasks, models, "Test Accuracy (%)", out_path / "heatmap_test.png"); ipt.save()
-    plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.png"); ipt.save()
+    # plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.png"); ipt.save()
 
     ipt.show()
     # Per-task grouped bars

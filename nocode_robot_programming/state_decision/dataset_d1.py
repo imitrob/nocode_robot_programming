@@ -90,11 +90,11 @@ def d1_peg_pick(
                     'd1_peg_pick_trial_6'])
 
     # 1. Smallest train, biggest test    
-    datasets.append([d_train, d_test, "Peg Pick dataset, 2 train trials, 8 test trials, window=10"])
+    datasets.append([d_train, d_test, "Peg Pick d1 hard, 2 train trials, 8 test trials, window=10"])
     # 2. 50% train, 50% test
-    datasets.append([d2_train, d2_test, "Peg Pick dataset, 5 train trials, 5 test trials, window=10"])
+    datasets.append([d2_train, d2_test, "Peg Pick d1 medium, 5 train trials, 5 test trials, window=10"])
     # 3. biggest train, smallest test
-    datasets.append([d_test, d_train, "Peg Pick dataset, 8 train trials, 2 test trials, window=10"])
+    datasets.append([d_test, d_train, "Peg Pick d1 easy, 8 train trials, 2 test trials, window=10"])
 
     return datasets
 
@@ -129,11 +129,11 @@ def d2_peg_pick(
                     'd2_peg_pick_trial_4'])
 
     # 1. Smallest train, biggest test    
-    datasets.append([d_train, d_test, "Peg Pick dataset, 2 train trials, 4 test trials, window=10"])
+    datasets.append([d_train, d_test, "Peg Pick d2 hard, 2 train trials, 4 test trials, window=10"])
     # 2. 50% train, 50% test
-    datasets.append([d2_train, d2_test, "Peg Pick dataset, 3 train trials, 3 test trials, window=10"])
+    datasets.append([d2_train, d2_test, "Peg Pick d2 medium, 3 train trials, 3 test trials, window=10"])
     # 3. biggest train, smallest test
-    datasets.append([d_test, d_train, "Peg Pick dataset, 4 train trials, 2 test trials, window=10"])
+    datasets.append([d_test, d_train, "Peg Pick d2 easy, 4 train trials, 2 test trials, window=10"])
 
     return datasets
 
@@ -173,11 +173,11 @@ def d1_probe(
                     'd1_probe_trial_5'])
 
     # 1. Smallest train, biggest test    
-    datasets.append([d_train, d_test, "Probe dataset, 2 train trials, 6 test trials, window=10"])
+    datasets.append([d_train, d_test, "Probe d1 hard, 2 train trials, 6 test trials, window=10"])
     # 2. 50% train, 50% test
-    datasets.append([d2_train, d2_test, "Probe dataset, 5 train trials, 3 test trials, window=10"])
+    datasets.append([d2_train, d2_test, "Probe d1 medium, 5 train trials, 3 test trials, window=10"])
     # 3. biggest train, smallest test
-    datasets.append([d_test, d_train, "Probe dataset, 6 train trials, 2 test trials, window=10"])
+    datasets.append([d_test, d_train, "Probe d1 easy, 6 train trials, 2 test trials, window=10"])
 
     return datasets
 
@@ -217,10 +217,10 @@ def d2_probe(
                     ])
 
     # 1. Smallest train, biggest test    
-    datasets.append([d_train, d_test, "Probe dataset, 2 train trials, 6 test trials, window=10"])
+    datasets.append([d_train, d_test, "Probe d2 hard, 2 train trials, 6 test trials, window=10"])
     # 2. 50% train, 50% test
-    datasets.append([d2_train, d2_test, "Probe dataset, 4 train trials, 4 test trials, window=10"])
+    datasets.append([d2_train, d2_test, "Probe d2 medium, 4 train trials, 4 test trials, window=10"])
     # 3. biggest train, smallest test
-    datasets.append([d_test, d_train, "Probe dataset, 6 train trials, 2 test trials, window=10"])
+    datasets.append([d_test, d_train, "Probe d2 easy, 6 train trials, 2 test trials, window=10"])
 
     return datasets

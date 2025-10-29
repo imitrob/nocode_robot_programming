@@ -25,14 +25,22 @@ class JupyterPlot():
         img_base64 = base64.b64encode(buf.read()).decode('utf-8')
         plt.close()
 
-        self.plots.append(img_base64)
+        if len(img_base64) > 3196:
+            self.plots.append(img_base64)
 
+    def delete(self):
+        self.plots = []
     
-    def show(self):
+    def show(self, small=False):
+        if small:
+            min_width = 15
+        else:
+            min_width = 35
         html = ""
         n = len(self.plots)
+        if n == 0: return
         for plot in self.plots:
-            html += f'<img src="data:image/png;base64,{plot}" style="width:{min(35,(100 // n) - 1)}%;display:inline-block;margin:5px;">'
+            html += f'<img src="data:image/png;base64,{plot}" style="width:{min(min_width,(100 // n) - 1)}%;display:inline-block;margin:5px;">'
         display(HTML(html))
         self.plots = []
 

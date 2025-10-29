@@ -1,212 +1,172 @@
-
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms
-from PIL import Image
-import numpy as np
-from collections import defaultdict
-from typing import Tuple, Optional, List
+from typing import List, Optional
 
-class DINOStateDecider():
-    """ Classify image to one of known `skill variations` (labels) using DINOv2 embeddings.
-    If the best cosine similarity to any class centroid is below that class's
-    learned threshold, return anomaly (-1).
-    """
-    def __init__(self,
-                 dino_variant: str = "dinov2_vits14",
-                 use_cls_token: bool = False,
-                 batch_size: int = 64,
-                 percent_keep: float = 0.05,    # keep rate for anomaly gate: 5th percentile of positives
-                 ):
-        """
-        Args:
-            dino_variant: one of {'dinov2_vits14','dinov2_vitb14','dinov2_vitl14',...}
-            use_cls_token: if True use CLS token, else mean-pool patch tokens
-            batch_size: batch size for training embeddings
-            percent_keep: per-class acceptance percentile (0.05 = 5th percentile).
-                          Stricter (lower) => more anomalies; looser (higher) => fewer anomalies.
-            max_side: reserved for custom resizing, not crucial with 224 crops
-        """
-        self.y_cls = None
+import warnings
+# silence the specific xFormers-not-available notices from DINOv2
+warnings.filterwarnings(
+    "ignore",
+    message="xFormers is not available",
+    category=UserWarning,
+)
 
-        self.device = torch.device("cuda") # we have only cuda machines
-
-        # Note: torch.hub will download on first use; keep it outside hot loop
-        self.model = torch.hub.load('facebookresearch/dinov2', dino_variant)
-        self.model.eval().to(self.device)
-        
-        self.use_cls_token = use_cls_token
-        self.batch_size = batch_size
-        self.percent_keep = float(percent_keep)
-
-        self.pre = transforms.Compose([
-            transforms.ToPILImage() if hasattr(transforms, "ToPILImage") else (lambda x: Image.fromarray(x)),
-            transforms.Grayscale(num_output_channels=3),
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),  # float32 [0,1]
-            transforms.Normalize(mean=(0.485,0.456,0.406), std=(0.229,0.224,0.225)),
-        ])
-
-        # learned state after train()
-        self.emb_dim: Optional[int] = None
-        self.class_centroids: Optional[torch.Tensor] = None  # [C, D], unit-norm
-        self.class_labels: Optional[np.ndarray] = None       # [C] original label values
-        self.class_thresholds: Optional[torch.Tensor] = None # [C] cosine threshold per class (float)
-        self.train_embeddings: Optional[torch.Tensor] = None # [N, D] (kept if you want kNN fallback)
-        self.train_labels: Optional[torch.Tensor] = None     # [N]
-
-
-        self.pos_proto = None
-        self.neg_proto = None
-
-
-    @torch.inference_mode()
-    def _forward_features(self, x: torch.Tensor) -> torch.Tensor:
-        ''' Forward DINO '''
-        # x: [B,3,224,224] float32/16 on device
-        out = self.model.forward_features(x)
-        if self.use_cls_token:
-            feat = out["x_norm_clstoken"]          # [B, D]
-        else:
-            feat = out["x_norm_patchtokens"].mean(dim=1)  # [B, D]
-        feat = F.normalize(feat, dim=-1)           # L2-normalize
-        return feat
-
-    def _prep_batch(self, imgs: List[np.ndarray]) -> torch.Tensor:
-        # Convert list of HxW or HxWxC np arrays to a single tensor batch
-        tensors = []
-        for im in imgs:
-            if im.ndim == 2:  # grayscale
-                # ToPILImage in self.pre expects HxW or HxWxC uint8/float; ok
-                pass
-            elif im.ndim == 3 and im.shape[2] == 3:
-                pass
-            else:
-                raise ValueError(f"Unsupported image shape {im.shape}")
-            t = self.pre(im)  # [3,224,224], float32
-            tensors.append(t)
-        batch = torch.stack(tensors, dim=0).to(self.device, non_blocking=True)
-        return batch
+class DINOFeaturePresence:
+    """ DINO-based classifier with cosine prototypes over patch tokens, see tutorial: `dino_tutorial.ipynb`
     
-    def embed_batch(self, X: np.ndarray, batch_size: Optional[int] = None) -> torch.Tensor:
+    C: int number of classes
+    D: int number of features (embedding)
+    N: int number of training samples
+    H: int Height pixels
+    W: int Width pixels
+    """
+    def __init__(
+        self,
+        dino_variant: str = "dinov2_vits14",
+        input_size: int = 224, # pixels width/height
+        batch_size: int = 64,
+        percentile_keep: Optional[float] = None,   # e.g., 0.10 to enable open-set gating
+        device: Optional[torch.device] = None,
+    ):
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = torch.hub.load('facebookresearch/dinov2', dino_variant).to(self.device).eval()
+
+        self.input_size = int(input_size)
+        self.batch_size = int(batch_size)
+        self.percentile_keep = percentile_keep
+
+        # learned with train()
+        self.y_cls: List[str] = []
+        self.prototypes: Optional[torch.Tensor] = None   # [C, D] (L2-normalized)
+        self.thresholds: Optional[torch.Tensor] = None   # [C] per-class open-set thresholds (optional)
+
+    def __str__(self):
+        return str(self.__class__.__name__)
+
+    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls: List[str]) -> None:
         """
-        X: (N, H, W) or (N, H, W, 3) uint8/float arrays.
-        Returns: torch.Tensor (N, D) on CPU, L2-normalized.
+        X: [N, H, W] float32 in [0,1] (any device; will be moved)
+        y: [N] int64 class ids
+        y_cls: list of class names, len C
         """
-        if batch_size is None:
-            batch_size = self.batch_size
-        feats = []
-        N = len(X)
-        with torch.amp.autocast(self.device.type):
-            for i in range(0, N, batch_size):
-                batch_np = X[i:i+batch_size]
-                xb = self._prep_batch(list(batch_np))
-                fb = self._forward_features(xb)  # [B, D]
-                feats.append(fb.detach().float().cpu())  # keep unified dtype on CPU
-        return torch.cat(feats, dim=0)  # [N, D]
+        assert X.ndim == 3, "X must be [N,H,W]"
+        self.y_cls = list(y_cls)
+        C = len(y_cls)
 
+        # 1) Compute patch features for all images
+        P = self._all_patch_feats(X)  # [N, M, D], L2-normalized
+        N, M, D = P.shape
 
-    def train(self, X: torch.Tensor, y: torch.Tensor, y_cls):
-        """ X,y inputs are at cuda by default
-        X: shape (N, H, W) or (N, H, W, 3) uint8/float
-        y: shape (N,) integer/str labels (will be stored as original values)
-        """
-        X = X.cpu()
-        y = y.cpu()
-        self.y_cls = y_cls
-        assert len(X) == len(y), "X and y must have the same length."
+        # 2) Pool image -> single vector (default: mean over patches)
+        G = self._pool_patches(P)  # [N, D], L2-normalized
 
-        # 1) Compute embeddings (batched, on device)
-        feats = self.embed_batch(X)               # [N, D], CPU float32
-        feats = F.normalize(feats, dim=-1)        # guard (already normalized but safe)
-        self.emb_dim = feats.shape[1]
-        y_np = np.asarray(y)
-        y_unique = np.unique(y_np)
+        # 3) Build class prototypes as mean of pooled features, then L2-normalize
+        prototypes = torch.zeros(C, D, device=self.device)
+        for c in range(C):
+            mask = (y == c)
+            assert mask.any(), f"No samples for class id {c}"
+            mu = G[mask].mean(dim=0)
+            prototypes[c] = F.normalize(mu, dim=0)
+        self.prototypes = prototypes                   # [C, D]
 
-        # 2) Build class centroids
-        centroids = []
-        thresholds = []
-        for cls in y_unique:
-            idx = (y_np == cls).nonzero()[0]
-            fcls = feats[idx]                    # [n_c, D]
-            centroid = F.normalize(fcls.mean(dim=0, keepdim=True), dim=-1)  # [1, D]
-            centroids.append(centroid)
-
-            # 3) Per-class threshold from positives:
-            # compute cosine to centroid for each training sample of that class
-            sims = (fcls @ centroid.T).squeeze(1)  # [n_c]
-            # choose the lower percentile (e.g., 5th) as accept threshold
-            thr = np.percentile(sims.numpy(), self.percent_keep * 100.0)
-            thresholds.append(float(thr))
-
-        self.class_centroids = torch.cat(centroids, dim=0)     # [C, D]
-        self.class_labels = y_unique.copy()
-        self.class_thresholds = torch.tensor(thresholds, dtype=torch.float32)  # [C]
-
-        # 4) (Optional) Keep all train embeddings for kNN fallback
-        self.train_embeddings = feats
-        self.train_labels = torch.from_numpy(y_np)
+        # 4) Optional: per-class open-set thresholds from training scores
+        if self.percentile_keep is not None:
+            with torch.no_grad():
+                logits = self._score_logits(G, self.prototypes)  # [N, C]
+                pos_scores = []                                  # list of tensors (per class)
+                for c in range(C):
+                    pos_scores.append(logits[y == c, c].detach().float().cpu())
+            thresholds = []
+            for c in range(C):
+                s = pos_scores[c].sort().values
+                k = max(0, min(len(s)-1, int(round(self.percentile_keep * (len(s)-1)))))
+                thresholds.append(s[k].item())
+            self.thresholds = torch.tensor(thresholds, device=self.device)
 
     @torch.inference_mode()
-    def predict(self, image: np.ndarray, timestep: float | None = None) -> str:
-        """ See state_decider.py:StateDeciderBase model
+    def predict(self, image: torch.Tensor) -> str:
         """
-        assert self.class_centroids is not None, "Call train() first."
-
-        # 1) Embed single image
-        xb = self._prep_batch([image])
-        with torch.amp.autocast(self.device.type):
-            feat = self._forward_features(xb)[0].float().cpu()   # [D]
-
-        # 2) Cosine to all centroids
-        centroids = self.class_centroids  # [C, D], CPU
-        sims = (centroids @ feat)         # [C]
-        best_idx = int(torch.argmax(sims).item())
-        best_sim = float(sims[best_idx].item())
-        best_label = self.class_labels[best_idx]
-
-        # 3) Open-set gate: compare to that class's threshold
-        if best_sim >= float(self.class_thresholds[best_idx]):
-            # known
-            # Return your original label type; ensure int if your system expects int ids
-            try:
-                lab_int = int(best_label)
-            except Exception:
-                # if labels were strings, you can map externally; here keep -1 fallback
-                lab_int = int(best_idx)
-            return self.y_cls[lab_int]
-        else:
-            return ""
-
-   # -------- Optional: kNN fallback for edge cases --------
-    @torch.inference_mode()
-    def predict_knn(self, image: np.ndarray, k: int = 3) -> Tuple[bool, int]:
+        image: [H, W] float32 in [0,1]
+        returns: predicted class name (or 'unknown' if gated)
         """
-        If you prefer instance-based prediction, use kNN in embedding space and the same open-set gate
-        by comparing the sample to the centroid of the voted class.
-        """
-        assert self.train_embeddings is not None, "Train embeddings not available."
-        xb = self._prep_batch([image])
-        with torch.amp.autocast(self.device.type):
-            feat = self._forward_features(xb)[0].float().cpu()   # [D]
-        sims = (self.train_embeddings @ feat)                    # [N]
-        topk = torch.topk(sims, k=min(k, sims.numel()), largest=True)
-        neigh_idx = topk.indices
-        neigh_labels = self.train_labels[neigh_idx].numpy()
-        # majority vote
-        vals, counts = np.unique(neigh_labels, return_counts=True)
-        voted = vals[np.argmax(counts)]
-        # gate by centroid of voted class
-        cidx = int(np.where(self.class_labels == voted)[0][0])
-        best_sim = float((self.class_centroids[cidx] @ feat).item())
-        if best_sim >= float(self.class_thresholds[cidx]):
-            try:
-                return True, int(voted)
-            except Exception:
-                return True, int(cidx)
-        return False, -1
+        assert self.prototypes is not None, "Call train() first"
+        p = self._single_patch_feats(image)  # [M, D]
+        g = self._pool_patches(p.unsqueeze(0))[0]  # [D]
+        logits = self._score_logits(g.unsqueeze(0), self.prototypes)[0]  # [C]
+        c = int(torch.argmax(logits).item())
 
+        if self.percentile_keep is not None and self.thresholds is not None: # enabled
+            if logits[c] < self.thresholds[c]:
+                return "unknown"
+        
+        return self.y_cls[c]
 
-    def predict_many(self, X):
+    def predict_many(self, X: torch.Tensor) -> List[str]:
         return [self.predict(x) for x in X]
+
+    def _pool_patches(self, P: torch.Tensor) -> torch.Tensor:
+        """ Default pooling: L2-normalized mean over patches. This simplifies things a lot, place for improvement - override this method. 
+        P: [N, M, D] or [1, M, D]
+        Returns: [N, D]
+        """
+        G = P.mean(dim=1)  # [N, D]
+        return F.normalize(G, dim=-1)
+
+    def _score_logits(self, G: torch.Tensor, prototypes: torch.Tensor) -> torch.Tensor:
+        """
+        Cosine logits (no temperature by default).
+        G: [N, D] (L2-normalized)
+        prototypes: [C, D] (L2-normalized)
+        Returns: [N, C]
+        """
+        return G @ prototypes.T
+
+    @torch.inference_mode()
+    def _all_patch_feats(self, X: torch.Tensor) -> torch.Tensor:
+        """ Used DINO model here in bachted patches.
+
+        X: [N, H, W] float32 in [0,1]
+        Returns: [N, M, D] (L2-normalized)
+        """
+        X = X.to(self.device, non_blocking=True)
+        feats = []
+        for i in range(0, X.size(0), self.batch_size):
+            xb = self._prep_batch(X[i:i+self.batch_size])  # [B,3,S,S]
+            out = self.model.forward_features(xb)
+            P = out["x_norm_patchtokens"].float()  # [B, M, D]
+            feats.append(F.normalize(P, dim=-1))
+        return torch.cat(feats, dim=0)
+
+    @torch.inference_mode()
+    def _single_patch_feats(self, x: torch.Tensor) -> torch.Tensor:
+        """ Used DINO model here.
+
+        x: [H, W] float32 in [0,1]
+        Returns: [M, D]
+        """
+        xb = self._prep_batch(x.unsqueeze(0))
+        out = self.model.forward_features(xb)
+        P = out["x_norm_patchtokens"].float()[0]  # [M, D]
+        return F.normalize(P, dim=-1)
+
+    def _prep_batch(self, X: torch.Tensor) -> torch.Tensor:
+        """
+        X: [B, H, W] float32 in [0,1]
+        Returns: [B, 3, S, S] ImageNet-normalized
+        """
+        if X.ndim == 3:  # [B,H,W], grayscale
+            X = X.unsqueeze(1).repeat(1, 3, 1, 1)
+        elif X.ndim == 4 and X.size(1) == 1:
+            X = X.repeat(1, 3, 1, 1)
+        elif X.ndim == 4 and X.size(1) == 3:
+            pass
+        else:
+            raise ValueError("Expected [B,H,W] or [B,1,H,W] or [B,3,H,W]")
+
+        X = torch.nn.functional.interpolate(
+            X, size=(self.input_size, self.input_size),
+            mode="bicubic", align_corners=False
+        )
+        mean = torch.tensor([0.485, 0.456, 0.406], device=self.device)[None, :, None, None]
+        std  = torch.tensor([0.229, 0.224, 0.225], device=self.device)[None, :, None, None]
+        return (X - mean) / std
