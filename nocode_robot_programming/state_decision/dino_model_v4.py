@@ -3,6 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Optional
 
+import warnings
+# silence the specific xFormers-not-available notices from DINOv2
+warnings.filterwarnings(
+    "ignore",
+    message="xFormers is not available",
+    category=UserWarning,
+)
+
 class DINOFeaturePresence:
     """ DINO-based classifier with cosine prototypes over patch tokens.
         Extension-ready: override hooks (_pool_patches, _score_logits, etc.) in subclasses.

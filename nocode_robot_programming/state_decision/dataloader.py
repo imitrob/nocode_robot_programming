@@ -327,4 +327,7 @@ class ImageDatasetView(Dataset):
         display(show_gray_video_cuda(self.X, fps=fps, scale=scale))
 
     def showcase_captions(self, fps: int = 20, scale: int = 5):
-        display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=self.y_int))
+        captions = []
+        for i,name in zip(self.y_int, self.y_names):
+            captions.append(f"y={i},{name}")
+        display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=captions))
