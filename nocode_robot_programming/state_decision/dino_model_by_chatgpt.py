@@ -10,7 +10,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-class DINOProtoPresence:
+class DINObyChatGPT:
     """
     Tiny 'peg present?' detector using a single DINO prototype.
 

@@ -17,7 +17,7 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
                  confidence: float = 0.99,
                  min_good: int = 8,
                  max_refs_per_class: int = 5,
-                 anomaly_percentile: float = 0.10   # 10th percentile as acceptance cutoff
+                 anomaly_percentile: float | None = None
                  ):
         """
         method: 'SIFT' | 'AKAZE' | 'ORB'
@@ -64,9 +64,8 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         self.threshold_by_class: Dict[Any, float] = {}
 
     def __str__(self):
-        return str(self.__class__.__name__)
+        return str(self.method)
 
-    # ------------- utils -------------
     def _prep(self, img: np.ndarray) -> np.ndarray:
         if img.ndim == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -119,7 +118,6 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
         inlier_ratio = float(mask.sum()) / len(good) if mask is not None else 0.0
         return inlier_ratio, mask
 
-    # ------------- training -------------
     def train(self, X: np.ndarray, y: np.ndarray, y_cls):
         """
         X: (N, H, W) or (N, H, W, 3)  uint8/float
@@ -172,17 +170,18 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
                     pos_scores.append(best)
 
             # fallback threshold if not enough matches
-            if len(pos_scores) >= 5:
+            if self.anomaly_percentile is None:
+                thr = 0.0
+            elif len(pos_scores) >= 5:
                 thr = float(np.percentile(pos_scores, self.anomaly_percentile * 100.0))
             elif len(pos_scores) > 0:
                 thr = float(min(pos_scores)) * 0.9  # conservative
             else:
-                thr = 0.25  # reasonable default; tune if needed
+                thr = 0.25
 
             self.refs_by_class[cls] = refs
             self.threshold_by_class[cls] = thr
 
-    # ------------- inference -------------
     def predict(self, image: np.ndarray, timestep: float | None = None) -> str:
         """ See state_decider.py:StateDeciderBase model
         """
@@ -208,7 +207,7 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
 
         # anomaly gate
         thr = self.threshold_by_class.get(best_cls, 0.25)
-        if best_score >= thr:
+        if thr == 0.0 or best_score >= thr:
             ret = best_cls if not torch.is_floating_point(best_cls) else int(list(self.refs_by_class.keys()).index(best_cls))
             return self.y_cls[ret]
         else:

@@ -42,7 +42,7 @@ class DINOWithMIL(DINOFeaturePresence):
         self._dropout = nn.Dropout(self.dropout_p)
 
     def __str__(self):
-        return str(self.__class__.__name__)
+        return f"{self.dino_variant},MIL,{self.input_size}"
 
     def train(self, X: torch.Tensor, y: torch.Tensor, y_cls: List[str]) -> None:
         """ Supervised MIL training of attention head + cosine classifier

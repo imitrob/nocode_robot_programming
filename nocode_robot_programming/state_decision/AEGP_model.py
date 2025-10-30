@@ -3,27 +3,46 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+import torchvision
 
 import gpytorch
 from tqdm import tqdm
-from copy import deepcopy
 
 class AEGP():
     """ Autoencoder + Gaussian Process """
-    def __init__(self):
+    def __init__(self, binary=False, resize=True, crop=True):
         self.videoembedder = VideoEmbedder()
-        self.riskestimator = GPEstimator()
-        # ORIGINAL ILESIA
-        # self.riskestimator = GPEstimatorIlesia()
+        
+        self.binary = binary
+        if self.binary:
+            self.riskestimator = GPEstimatorIlesia()
+        else:
+            self.riskestimator = GPEstimator()
         self.y_cls = None
 
         # (1/3) TMP: PLOT PROBS
         self.mean_probs = []
 
+        self.tf_list = []
+        if crop:
+            self.tf_list.append(torchvision.transforms.CenterCrop(90))
+
+        if resize:
+            self.tf_list.append(torchvision.transforms.Resize((64, 64), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True))
+        
+        if crop or resize:
+            self.tf = torchvision.transforms.Compose(self.tf_list)
+            self.do_tf = True
+        else:
+            self.do_tf = False
+
     def __str__(self):
-        return self.__class__.__name__
+        return f"{self.__class__.__name__},bin={self.binary}"
 
     def _dataset_prepare(self, X):
+        if self.do_tf:
+            X = self.tf(X)
+        
         """ X.shape = (samples, width, height), y.shape = (samples, ) """
         Xpp = torch.concatenate([X[1:].clone(), X[-1:].clone()])
         return torch.stack([X, Xpp]).swapaxes(0,1) # X_.shape = (samples, 2, width, height)
@@ -47,6 +66,8 @@ class AEGP():
     def predict(self, image: torch.Tensor, timestep: float | None = None) -> str:
         """ See state_decider.py:StateDeciderBase model
         """
+        if self.do_tf:
+            image = self.tf(image.unsqueeze(0))[0]
         self.videoembedder.model.eval()
         with torch.no_grad():
             latent = self.videoembedder.model.encoder(image.unsqueeze(0).unsqueeze(0)) # (1, 1, width, height), 4D
@@ -70,17 +91,21 @@ class AEGP():
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
             # Draw MC samples from the likelihood, shape: (S, N, C)
             with gpytorch.settings.num_likelihood_samples(128):
-                pred = self.riskestimator.likelihood(self.riskestimator.model(x))
-                probs = pred.probs  # (S, N, C)
-                # ORIGINAL ILESIA
-                # mean = float(pred.mean.cpu().numpy())
-                # std = pred.stddev.cpu().numpy()
+                if self.binary:
+                    pred = self.riskestimator.likelihood(self.riskestimator.model(x))
+                    mean = float(pred.mean.cpu().numpy())
+                    std = float(pred.stddev.cpu().numpy())
+                else:
+                    pred = self.riskestimator.likelihood(self.riskestimator.model(x))
+                    probs = pred.probs  # (S, N, C)
 
-        mean_probs = probs.mean(0)          # (N, C)
-        labels = mean_probs.argmax(dim=-1)  # (N,)
-        # ORIGINAL ILESIA
-        # mean_probs = [(mean, 1-mean)]
-        # labels = round(mean)
+
+        if self.binary:
+            mean_probs = [(mean, 1-mean)]
+            labels = round(mean)
+        else:
+            mean_probs = probs.mean(0)          # (N, C)
+            labels = mean_probs.argmax(dim=-1)  # (N,)
 
         # (2/3) TMP: PLOT PROBS
         self.mean_probs.append([float(mean_probs[0][0]), float(mean_probs[0][1])])
@@ -360,7 +385,8 @@ class GPModel(gpytorch.models.ExactGP):
 class GPEstimatorIlesia():
     def __init__(self):
         pass
-    def training_loop(self, X, Y, train_epoch = 400):
+    def training_loop(self, X, Y, num_classes: int, train_epoch: int = 400):
+        assert num_classes == 2
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
         self.model = GPModel(X, Y, self.likelihood)
         self.model=self.model.cuda()

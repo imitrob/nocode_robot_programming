@@ -28,6 +28,7 @@ class DINOFeaturePresence:
         percentile_keep: Optional[float] = None,   # e.g., 0.10 to enable open-set gating
         device: Optional[torch.device] = None,
     ):
+        self.dino_variant = dino_variant
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = torch.hub.load('facebookresearch/dinov2', dino_variant).to(self.device).eval()
 
@@ -41,7 +42,7 @@ class DINOFeaturePresence:
         self.thresholds: Optional[torch.Tensor] = None   # [C] per-class open-set thresholds (optional)
 
     def __str__(self):
-        return str(self.__class__.__name__)
+        return f"{self.dino_variant},{self.input_size}"
 
     def train(self, X: torch.Tensor, y: torch.Tensor, y_cls: List[str]) -> None:
         """

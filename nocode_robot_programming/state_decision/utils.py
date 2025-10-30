@@ -179,18 +179,19 @@ class To01FromDtype(torch.nn.Module):
         return x.clamp_(0, 1)
 
 
-def saved_img_processing(img, w_h=(224,224)):
+def saved_img_processing(img):
     min_dim_size = min(img.shape[-2], img.shape[-1])
     resize_transform = torchvision.transforms.Compose([
         To01FromDtype(),  # <-- do this BEFORE resize if x is float to avoid weird interpolation with huge values
         torchvision.transforms.Lambda(lambda x: x if x.ndim == 3 else x.unsqueeze(0)),  # HxW -> 1xHxW
         torchvision.transforms.CenterCrop(min_dim_size),
-        torchvision.transforms.Resize((w_h[0], w_h[1]), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True),
+        torchvision.transforms.Resize((224, 224), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True),
     ])
     return resize_transform(img).unsqueeze(0) # ?
 
 def saved_img_processing_old(img):
     min_dim_size = min(img.shape[0], img.shape[1])
+    # min_dim_size = 90
     resize_transform = torchvision.transforms.Compose(
         [
             torchvision.transforms.ToTensor(), # uint8/uint16 -> float, channel-first
@@ -255,7 +256,7 @@ def _ensure_arrays(train_2d: Sequence[Sequence[float]],
 
 
 def _safe_dir(dirname: str) -> Path:
-    p = Path("~/Downloads") / dirname
+    p = Path("auto_fig_generator") / dirname
     p.mkdir(parents=True, exist_ok=True)
     return p
 
