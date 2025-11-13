@@ -106,7 +106,7 @@ class DINOWithMIL(DINOFeaturePresence):
         c = int(torch.argmax(logits).item())
         if self.percentile_keep is not None and self.thresholds is not None:
             if logits[c] < self.thresholds[c]:
-                return "unknown"
+                return "anomaly"
         return self.y_cls[c]
 
     def _pool_patches(self, P: torch.Tensor) -> torch.Tensor:

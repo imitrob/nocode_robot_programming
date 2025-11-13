@@ -10,8 +10,7 @@ from tqdm import tqdm
 
 class AEGP():
     """ Autoencoder + Gaussian Process """
-    def __init__(self, binary=False, resize=True, crop=True):
-        self.videoembedder = VideoEmbedder()
+    def __init__(self, binary: bool = False, pix: int = 224, crop: bool = True):
         
         self.binary = binary
         if self.binary:
@@ -27,21 +26,16 @@ class AEGP():
         if crop:
             self.tf_list.append(torchvision.transforms.CenterCrop(90))
 
-        if resize:
-            self.tf_list.append(torchvision.transforms.Resize((64, 64), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True))
-        
-        if crop or resize:
-            self.tf = torchvision.transforms.Compose(self.tf_list)
-            self.do_tf = True
-        else:
-            self.do_tf = False
+        self.tf_list.append(torchvision.transforms.Resize((pix, pix), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True))
+        self.tf = torchvision.transforms.Compose(self.tf_list)
+
+        self.videoembedder = VideoEmbedder(12, pix)
 
     def __str__(self):
         return f"{self.__class__.__name__},bin={self.binary}"
 
     def _dataset_prepare(self, X):
-        if self.do_tf:
-            X = self.tf(X)
+        X = self.tf(X)
         
         """ X.shape = (samples, width, height), y.shape = (samples, ) """
         Xpp = torch.concatenate([X[1:].clone(), X[-1:].clone()])
@@ -66,8 +60,7 @@ class AEGP():
     def predict(self, image: torch.Tensor, timestep: float | None = None) -> str:
         """ See state_decider.py:StateDeciderBase model
         """
-        if self.do_tf:
-            image = self.tf(image.unsqueeze(0))[0]
+        image = self.tf(image.unsqueeze(0))[0]
         self.videoembedder.model.eval()
         with torch.no_grad():
             latent = self.videoembedder.model.encoder(image.unsqueeze(0).unsqueeze(0)) # (1, 1, width, height), 4D
@@ -130,8 +123,11 @@ class Autoencoder3(nn.Module):
         x_reconstructed = self.decoder(z)
         return x_reconstructed
     
-    def __init__(self, latent_dim: int = 12):
+    def __init__(self, latent_dim: int, pix: int):
         super(Autoencoder3, self).__init__()
+        
+        # We have 2**3=8x dimension reduction (pooling) due to 3x MaxPool2d
+        l = pix // 8
 
         # Encoder with dropout
         self.encoder = nn.Sequential(
@@ -141,35 +137,35 @@ class Autoencoder3(nn.Module):
             nn.Dropout2d(0.1),  # Added
             nn.MaxPool2d(kernel_size=2, stride=2),
             
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(64, 64*2, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64*2),
             nn.ReLU(),
             nn.Dropout2d(0.05),  # Added
             nn.MaxPool2d(kernel_size=2, stride=2),
             
-            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(256),
+            nn.Conv2d(64*2, 64*4, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64*4),
             nn.ReLU(),
             nn.Dropout2d(0.05),  # Added
             nn.MaxPool2d(kernel_size=2, stride=2),
             
             nn.Flatten(),
-            nn.Linear(256 * 8 * 8, latent_dim),
+            nn.Linear(64*4 * l * l, latent_dim),
             nn.Dropout(0.02)  # Added after linear layer
         )
         
         # Decoder with dropout
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 256 * 8 * 8),
+            nn.Linear(latent_dim, 64*4 * l * l),
             nn.Dropout(0.02),  # Added
-            nn.Unflatten(1, (256, 8, 8)),
+            nn.Unflatten(1, (64*4, l, l)),
             
-            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(128),
+            nn.ConvTranspose2d(64*4, 64*2, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(64*2),
             nn.ReLU(),
             nn.Dropout2d(0.05),  # Added
             
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(64*2, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Dropout2d(0.1),  # Added
@@ -198,8 +194,8 @@ class Autoencoder3(nn.Module):
         return self._safe_apply(self.encoder, x, chunk_size)
 
 class VideoEmbedder():
-    def __init__(self):
-        self.model = Autoencoder3(12)
+    def __init__(self, latent: int, pix: int):
+        self.model = Autoencoder3(latent, pix)
         self.model.to("cuda")
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(

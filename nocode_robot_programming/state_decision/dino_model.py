@@ -89,7 +89,7 @@ class DINOFeaturePresence:
     def predict(self, image: torch.Tensor) -> str:
         """
         image: [H, W] float32 in [0,1]
-        returns: predicted class name (or 'unknown' if gated)
+        returns: predicted class name (or 'anomaly' if gated)
         """
         assert self.prototypes is not None, "Call train() first"
         p = self._single_patch_feats(image)  # [M, D]
@@ -99,7 +99,7 @@ class DINOFeaturePresence:
 
         if self.percentile_keep is not None and self.thresholds is not None: # enabled
             if logits[c] < self.thresholds[c]:
-                return "unknown"
+                return "anomaly"
         
         return self.y_cls[c]
 
@@ -264,7 +264,7 @@ class DINOFeaturePresenceAttnGated(DINOFeaturePresence):
         c = int(torch.argmax(logits).item())
         if self.percentile_keep is not None and self.thresholds is not None:
             if logits[c] < self.thresholds[c]:
-                return "unknown"
+                return "anomaly"
         return self.y_cls[c]
 
     def _pool_patches_with_weights(self, P: torch.Tensor, W: torch.Tensor) -> torch.Tensor:

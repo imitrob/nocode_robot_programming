@@ -1,6 +1,7 @@
 import os, json, math, argparse
 import numpy as np
 import trimesh, pyrender, imageio
+from pathlib import Path
 
 from dataclasses import dataclass
 
@@ -103,6 +104,11 @@ def generate_run(args):
     scene = pyrender.Scene(bg_color=bg, ambient_light=[0.05, 0.05, 0.05])
     pm = pyrender.Mesh.from_trimesh(mesh, smooth=True)
     scene.add(pm)
+    
+    if args.spawn_box:
+        tm = trimesh.creation.box(extents=[100, 100, 100])
+        box = pyrender.Mesh.from_trimesh(tm, smooth=False)
+        scene.add(box)
 
     # Lighting
     def _mk_pose(p):
@@ -139,8 +145,22 @@ def generate_run(args):
 
     offset_vec = np.array(args.offset, dtype=np.float32)
 
-    gray_frames = []
+    # This checkes if any images already exists and extends them
+    j = 0 # saved image offset
+    if (Path(out_dir) / "grayscale_uint8.npz").is_file():
+        images = np.load(Path(out_dir) / "grayscale_uint8.npz")['images']
+        gray_frames = list(images)
+
+        # TODO: !!!
+        # with open(os.path.join(out_dir,  "metadata.json"), "w") as f:
+        #     meta_dict = dict(json.loads(f))
+
+        while (Path(out_dir) / f"view_{j:03d}.png").is_file():
+            j+=1
+    else:
+        gray_frames = []
     meta_dict = {}
+
     for i, (P_base, eye_base, tgt) in enumerate(zip(poses, eyes, targets)):
         # Apply translation offset to camera position; keep the look aimed at target
         eye = eye_base + offset_vec
@@ -159,7 +179,7 @@ def generate_run(args):
         gray_u8 = np.clip(gray, 0, 255).astype(np.uint8)
         gray_frames.append(gray_u8)  # (H, W)
 
-        fn = f"view_{i:03d}.png"
+        fn = f"view_{(i+j):03d}.png"
         imageio.imwrite(os.path.join(out_dir, fn), rgba)
 
         meta_dict[fn] = {
@@ -193,4 +213,5 @@ class RunArgs:
     traj_file: str | None = None
     start_dist_factor: float = 1.5
     end_dist_factor: float = 0.2
+    spawn_box: bool = False
 
