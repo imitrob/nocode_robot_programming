@@ -10,6 +10,7 @@ dependencies: # copied from franka_hri and added few packages - this list can be
 - numpy=1.26.4 # 1.24.3 Giovanni
 - quaternion
 - scikit-learn
+- scikit-video
 - seaborn
 - ros-humble-desktop
 - ros-humble-realsense2-camera
@@ -58,6 +59,7 @@ dependencies: # copied from franka_hri and added few packages - this list can be
 - dash
 - plotly
 - pip:
+  - gpytorch
   - phonemizer
   - munch
   - kokoro
