@@ -20,8 +20,8 @@ class StateDeciderNode(SpinningRosNode):
             from nocode_robot_programming.state_decision.SIFT_model import StateDeciderSIFT
             self.model = StateDeciderSIFT()
         elif method == "DINO":
-            from nocode_robot_programming.state_decision.dino_model import DINOStateDecider
-            self.model = DINOStateDecider()
+            from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresence
+            self.model = DINOFeaturePresence()
         elif method == "AEGP":
             from nocode_robot_programming.state_decision.AEGP_model import AEGP
             self.model = AEGP()
