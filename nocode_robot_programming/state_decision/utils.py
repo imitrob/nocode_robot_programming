@@ -266,7 +266,7 @@ def _safe_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s)
 
 
-def plot_heatmap(matrix: np.ndarray, x_labels: List[str], y_labels: List[str], title: str, save_path: Path):
+def plot_heatmap(matrix: np.ndarray, x_labels: List[str], y_labels: List[str], title: str, save_path: Path, jupyter_plot: bool):
     fig = plt.figure(figsize=(max(6, len(x_labels)*0.8), max(4.5, len(y_labels)*0.6)))
     ax = fig.add_subplot(111)
     im = ax.imshow(matrix, aspect="auto")
@@ -282,12 +282,16 @@ def plot_heatmap(matrix: np.ndarray, x_labels: List[str], y_labels: List[str], t
         for j in range(matrix.shape[1]):
             ax.text(j, i, f"{matrix[i, j]:.1f}", ha="center", va="center", fontsize=8)
     fig.tight_layout()
-    # fig.savefig(save_path, dpi=160, bbox_inches="tight")
-    # plt.show()
+
+    if jupyter_plot:
+        ipt.save()
+    else:
+        fig.savefig(save_path, dpi=160, bbox_inches="tight")
+        plt.show()
 
 
 def plot_grouped_bars_per_task(train: np.ndarray, test: np.ndarray, models: List[str],
-                               task: str, task_idx: int, save_path: Path):
+                               task: str, task_idx: int, save_path: Path, jupyter_plot: bool):
     tr = train[:, task_idx]
     te = test[:, task_idx]
     x = np.arange(len(models))
@@ -304,11 +308,15 @@ def plot_grouped_bars_per_task(train: np.ndarray, test: np.ndarray, models: List
     ax.set_title(f"{task}: Train vs Test by Model")
     ax.legend()
     fig.tight_layout()
-    # fig.savefig(save_path, dpi=160, bbox_inches="tight")
-    # plt.show()
+    
+    if jupyter_plot:
+        ipt.save()
+    else:
+        fig.savefig(save_path, dpi=160, bbox_inches="tight")
+        plt.show()
 
 
-def plot_bars_per_model(values: np.ndarray, x_labels: List[str], model_name: str, title: str, save_path: Path):
+def plot_bars_per_model(values: np.ndarray, x_labels: List[str], model_name: str, title: str, save_path: Path, jupyter_plot: bool):
     x = np.arange(len(x_labels))
     fig = plt.figure(figsize=(max(6, len(x_labels)*0.8), 4.8))
     ax = fig.add_subplot(111)
@@ -334,15 +342,20 @@ def plot_bars_per_model(values: np.ndarray, x_labels: List[str], model_name: str
     ax.set_ylabel("Accuracy (%)")
     ax.set_title(f"{title} — {model_name}")
     fig.tight_layout()
-    # fig.savefig(save_path, dpi=160, bbox_inches="tight")
-    # plt.show()
+
+    if jupyter_plot:
+        ipt.save()
+    else:
+        fig.savefig(save_path, dpi=160, bbox_inches="tight")
+        plt.show()
 
 
 def visualize_accuracies(train_2d: Sequence[Sequence[float]],
                          test_2d: Sequence[Sequence[float]],
                          model_names: Sequence[str],
                          task_names: Sequence[str],
-                         out_dir: str = "accuracy_viz"):
+                         out_dir: str = "accuracy_viz",
+                         jupyter_plot: bool = True):
     """Create visualizations and a CSV summary.
 
     Returns
@@ -366,32 +379,34 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
     df.to_csv(csv_path)
 
     # Heatmaps
-    plot_heatmap(train, tasks, models, "Train Accuracy (%)", out_path / "heatmap_train.png"); ipt.save()
-    plot_heatmap(test, tasks, models, "Test Accuracy (%)", out_path / "heatmap_test.png"); ipt.save()
-    # plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.png"); ipt.save()
-
-    ipt.show()
+    plot_heatmap(train, tasks, models, "Train Accuracy (%)", out_path / "heatmap_train.png", jupyter_plot)
+    plot_heatmap(test, tasks, models, "Test Accuracy (%)", out_path / "heatmap_test.png", jupyter_plot)
+    # plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.png", jupyter_plot)
+    if jupyter_plot:
+        ipt.show()
     # Per-task grouped bars
     for j, t in enumerate(tasks):
-        plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.png"); ipt.save()
-        if j%4==3:
+        plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.png", jupyter_plot)
+        if jupyter_plot and j%4==3:
             ipt.show()
 
-    ipt.show()
+    if jupyter_plot:
+        ipt.show()
     # Per-model bars (test across tasks)
     for i, m in enumerate(models):
-        plot_bars_per_model(test[i, :], tasks, m, "Test Accuracy by Task", out_path / f"per_model_test_{i:02d}_{_safe_name(m)}.png"); ipt.save()
-        if i%4==3:
+        plot_bars_per_model(test[i, :], tasks, m, "Test Accuracy by Task", out_path / f"per_model_test_{i:02d}_{_safe_name(m)}.png", jupyter_plot)
+        if jupyter_plot and i%4==3:
             ipt.show()
 
-
-    ipt.show()
-    # ZIP
-    # zip_path = out_path.with_suffix(".zip")
-    # with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-    #     for png in sorted(out_path.glob("*.png")):
-    #         zf.write(png, arcname=png.name)
-    # return {"out_dir": str(out_path), "zip_path": str(zip_path), "csv_path": str(csv_path)}
+    if jupyter_plot:
+        ipt.show()
+    else:
+        # ZIP
+        zip_path = out_path.with_suffix(".zip")
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for png in sorted(out_path.glob("*.png")):
+                zf.write(png, arcname=png.name)
+        return {"out_dir": str(out_path), "zip_path": str(zip_path), "csv_path": str(csv_path)}
 
 
 

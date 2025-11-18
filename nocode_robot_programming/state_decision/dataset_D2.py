@@ -2,71 +2,321 @@ from nocode_robot_programming.state_decision.utils import Filename
 from nocode_robot_programming.state_decision.dataloader import ImageDatasetView, saved_img_processing
 import torch
 from copy import deepcopy
-import numpy as np
-from pathlib import Path
-import os 
-from typing import List
-import shutil
 
-import trajectory_data
-from nocode_robot_programming.artificial_dataset.dataset_generator import generate_run, RunArgs
+from nocode_robot_programming.state_decision.dataset_D1 import get_dataset_view
 
-def get_dataset_view_artificial_dataset(folder: str, y_cls: List[str] | None = None) -> ImageDatasetView:
-    """ Fileloader used to create dataset
-        1. Image preprocessing
-        2. Returns as a ImageDatasetView object
-
-    y_cls = ["label1", "label2"] - classification labels
-    if y_cls is None, it searches for labels (can shuffle them)
-    """
-    X_parts, Xt_parts, y_int_parts, y_name_parts = [], [], [], []
-    
-    if y_cls is None:
-        y_cls_do = True
-        y_cls = []
-    else:
-        y_cls_do = False
-
-    p = Path(trajectory_data.package_path) / 'trajectories' / 'artificial_dataset' / folder
-    
-    for c, dir_ in enumerate(p.iterdir()):
-        images = np.load(f"{dir_}/grayscale_uint8.npz")["images"]  # (N, H, W), uint8
-        images = torch.tensor(images)
-        nsamples, H, W = images.shape
-        cls = dir_.name
-
-        if y_cls_do:
-            y_cls.append(cls)
-
-        for i, img in enumerate(images):
-            img_post = saved_img_processing(img.squeeze())  # (nsamples, H, W)
-            
-            X_parts.append(img_post)
-            Xt_parts.append(i)
-            y_int_parts.append(c)
-            y_name_parts.append(cls)
-    X  = torch.cat(X_parts, dim=0).squeeze()  # (total_samples, H, W)
-    Xt = torch.tensor(Xt_parts)  # (total_samples,)
-    y_int = torch.tensor(y_int_parts)  # (total_samples,)
-
-    return ImageDatasetView(X=X, Xt=Xt, y_int=y_int, y_names=y_name_parts, y_cls=y_cls)
-
-
-def d1_move(dummy: None):
+def d1_anomaly_peg_pick(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 49, 
+        tags = ['d1_peg_pick', ] # label: 0,
+    ):
     datasets = []
-    # clear folder 
-    dsfolder = Path(trajectory_data.package_path) / 'trajectories' / 'artificial_dataset'
-    assert dsfolder.is_dir()
-    shutil.rmtree(dsfolder)
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
 
-    generate_run(RunArgs(folder="d1_train", cls="peg", offset=(0,0,0), mesh="taskboard.stl"))
-    generate_run(RunArgs(folder="d1_test",  cls="peg" , offset=(8,0,0), mesh="taskboard.stl"))
-    generate_run(RunArgs(folder="d1_train", cls="nopeg", offset=(0,0,0), mesh="taskboard_nopeg.stl"))
-    generate_run(RunArgs(folder="d1_test",  cls="nopeg" , offset=(8,0,0), mesh="taskboard_nopeg.stl"))
+    da_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_peg_pick'])
+    da_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_peg_pick_branch_at_49', 
+                    'd1_peg_pick_trial_0',
+                    'd1_peg_pick_trial_1',
+                    'd1_peg_pick_trial_2',
+                    'd1_peg_pick_trial_3',
+                    'd1_peg_pick_trial_4',
+                    'd1_peg_pick_trial_5',
+                    'd1_peg_pick_trial_6',
+                    'd1_peg_pick_trial_7',
+                    'd1_peg_pick_trial_8'])
 
-    d_train = get_dataset_view_artificial_dataset(folder="d1_train")
-    d_test = get_dataset_view_artificial_dataset(folder="d1_test", y_cls=d_train.y_cls)
+    db_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_peg_pick', 
+                    'd1_peg_pick_trial_4'])
 
-    datasets.append([d_train, d_test, "Artificial Approach"])
+    db_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_peg_pick_trial_2', 
+                    'd1_peg_pick_trial_3', 
+                    'd1_peg_pick_trial_7', 
+                    'd1_peg_pick_trial_8', 
+                    'd1_peg_pick_trial_6',
+                    'd1_peg_pick_branch_at_49', 
+                    'd1_peg_pick_trial_0', 
+                    'd1_peg_pick_trial_5', 
+                    'd1_peg_pick_trial_1'])
+
+    dc_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_peg_pick', 
+                    'd1_peg_pick_trial_4',
+                    'd1_peg_pick_trial_5', 
+                    'd1_peg_pick_trial_6'])
+
+    dc_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_peg_pick_branch_at_49', 
+                    'd1_peg_pick_trial_0', 
+                    'd1_peg_pick_trial_1',
+                    'd1_peg_pick_trial_2',
+                    'd1_peg_pick_trial_3',
+                    'd1_peg_pick_trial_7',
+                    'd1_peg_pick_trial_8'])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([da_train, da_test, "Peg Pick anomaly kin hard, 1 train trials, 10 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([db_train, db_test, "Peg Pick anomaly kin medium, 2 train trials, 9 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([dc_train, dc_test, "Peg Pick anomaly kin easy, 4 train trials, 7 test trials, window=10"])
+
+    return datasets
+
+def d2_anomaly_peg_pick(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 76, 
+        tags = ['d2_peg_pick', ] # label: 0,
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    da_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick',])
+    da_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick_trial_0',
+                    'd2_peg_pick_trial_1',
+                    'd2_peg_pick_trial_3',
+                    'd2_peg_pick_trial_4',
+                    'd2_peg_pick_branch_at_76', 
+                    'd2_peg_pick_trial_2'])
+
+    db_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick', 
+                    'd2_peg_pick_trial_0'])
+
+    db_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick_trial_1', 
+                    'd2_peg_pick_trial_3',
+                    'd2_peg_pick_trial_4',
+                    'd2_peg_pick_branch_at_76', 
+                    'd2_peg_pick_trial_2', ])
+
+    dc_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick', 
+                    'd2_peg_pick_trial_0',
+                    'd2_peg_pick_trial_1'])
+
+    dc_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_peg_pick_trial_3',
+                    'd2_peg_pick_trial_4',
+                    'd2_peg_pick_branch_at_76', 
+                    'd2_peg_pick_trial_2', ])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([da_train, da_test, "Peg Pick anomaly joy hard, 1 train trials, 6 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([db_train, db_test, "Peg Pick anomaly joy medium, 2 train trials, 5 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([dc_train, dc_test, "Peg Pick anomaly joy easy, 3 train trials, 4 test trials, window=10"])
+
+    return datasets
+
+def d3_anomaly_peg_pick(        
+        loader,
+        window: int = 10, 
+        branch_offset: int = 189, 
+        tags = ['d3_peg_pick', ] # label: 0,
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    da_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_peg_pick', ])
+    da_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_peg_pick_trial_0',
+                    'd3_peg_pick_trial_2',
+                    'd3_peg_pick_branch_at_189', 
+                    'd3_peg_pick_trial_1'])
+
+    db_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_peg_pick', 
+                    'd3_peg_pick_trial_0', ])
+
+    db_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_peg_pick_trial_2',
+                    'd3_peg_pick_branch_at_189', 
+                    'd3_peg_pick_trial_1', ])
+
+    dc_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_peg_pick', 
+                    'd3_peg_pick_trial_0', ])
+
+    dc_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_peg_pick_branch_at_189', 
+                    'd3_peg_pick_trial_1', 
+                    'd3_peg_pick_trial_2', ])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([da_train, da_test, "Peg Pick gest hard, 1 train trials, 4 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([db_train, db_test, "Peg Pick gest easy/medium(a), 2 train trials, 3 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([dc_train, dc_test, "Peg Pick gest easy/medium(b), 2 train trials, 3 test trials, window=10"])
+
+    return datasets
+
+def d1_anomaly_probe(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 51, 
+        tags = ['d1_probe', ] # label: 0,   
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    da_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe', ])
+    da_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe_trial_0',
+                    'd1_probe_trial_1',
+                    'd1_probe_trial_2',
+                    'd1_probe_trial_3',
+                    'd1_probe_trial_4',
+                    'd1_probe_trial_5',
+                    'd1_probe_branch_at_51',
+                    'd1_probe_trial_6', ])
+
+    db_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe', 
+                    'd1_probe_trial_0', 
+                    ])
+
+    db_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe_trial_3', 
+                    'd1_probe_trial_4', 
+                    'd1_probe_trial_5',
+                    'd1_probe_branch_at_51', 
+                    'd1_probe_trial_6',
+                    'd1_probe_trial_1', 
+                    'd1_probe_trial_2', ])
+
+    dc_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe', 
+                    'd1_probe_trial_0', 
+                    'd1_probe_trial_4', 
+                    'd1_probe_trial_5',
+                    ])
+
+    dc_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d1_probe_trial_3', 
+                    'd1_probe_branch_at_51', 
+                    'd1_probe_trial_6',
+                    'd1_probe_trial_1', 
+                    'd1_probe_trial_2', ])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([da_train, da_test, "Probe anomaly kin hard, 1 train trials, 8 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([db_train, db_test, "Probe anomaly kin medium, 2 train trials, 7 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([dc_train, dc_test, "Probe anomaly kin easy, 4 train trials, 5 test trials, window=10"])
+
+    return datasets
+
+def d2_anomaly_probe(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 103, 
+        tags = ['d2_probe', ] # label: 0,  
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    da_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe', ])
+    da_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe_trial_0',
+                    'd2_probe_trial_1',
+                    'd2_probe_trial_2',
+                    'd2_probe_trial_3',
+                    'd2_probe_trial_4',
+                    'd2_probe_trial_5',
+                    'd2_probe_trial_6',
+                    'd2_probe_branch_at_103',
+                    ])
+
+    db_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe', 
+                    'd2_probe_trial_0', ])
+
+    db_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe_trial_1', 
+                    'd2_probe_trial_2', 
+                    'd2_probe_trial_5',
+                    'd2_probe_trial_4', 
+                    'd2_probe_branch_at_103', 
+                    'd2_probe_trial_6',
+                    'd2_probe_trial_3', ])
+
+    dc_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe', 
+                    'd2_probe_trial_0', 
+                    'd2_probe_trial_1', 
+                    'd2_probe_trial_2', ])
+
+    dc_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d2_probe_trial_5',
+                    'd2_probe_trial_4', 
+                    'd2_probe_branch_at_103', 
+                    'd2_probe_trial_6',
+                    'd2_probe_trial_3', ])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([da_train, da_test, "Probe anomaly joy hard, 1 train trials, 8 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([db_train, db_test, "Probe anomaly joy medium, 2 train trials, 7 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([dc_train, dc_test, "Probe anomaly joy easy, 4 train trials, 5 test trials, window=10"])
+
+    return datasets
+
+
+def d3_anomaly_probe(
+        loader,
+        window: int = 10, 
+        branch_offset: int = 118, 
+        tags = ['d3_probe', ] # label: 0,
+    ):
+    datasets = []
+    at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
+
+    da_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_probe', ])
+    da_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_probe_trial_0',
+                    'd3_probe_trial_1',
+                    'd3_probe_branch_at_118',
+                    'd3_probe_trial_2'])
+
+    db_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_probe', 
+                    'd3_probe_trial_0'])
+
+    db_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_probe_trial_1',
+                    'd3_probe_branch_at_118', 
+                    'd3_probe_trial_2',])
+
+    dc_train = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_probe', 
+                    'd3_probe_trial_0'])
+
+    dc_test = get_dataset_view(loader, tags=tags, at=at,
+        file_names=['d3_probe_trial_1',
+                    'd3_probe_branch_at_118', 
+                    'd3_probe_trial_2',])
+
+    # 1. Smallest train, biggest test    
+    datasets.append([da_train, da_test, "Probe gest hard, 1 train trials, 4 test trials, window=10"])
+    # 2. 50% train, 50% test
+    datasets.append([db_train, db_test, "Probe gest easy/medium(a), 2 train trials, 3 test trials, window=10"])
+    # 3. biggest train, smallest test
+    datasets.append([dc_train, dc_test, "Probe gest easy/medium(b), 2 train trials, 3 test trials, window=10"])
 
     return datasets
