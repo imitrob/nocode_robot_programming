@@ -46,22 +46,23 @@ def get_dataset_view(datafileloader, file_names: list[str], tags: list[str] = []
 
     return ImageDatasetView(X=X, Xt=Xt, y_int=y_int, y_names=y_names, y_cls=tags)
 
-def auto_load(task_name: str, e: int = 10):
-    raise Exception("TODO")
-    loader = TrajectoryDataset(trajectory_data.package_path)
+def load_dataset_separated_ds(task_name: str, e: int = 10):
     
-    file_names = loader.get_all_names(task_name)
+    loader = TrajectoryDataset(trajectory_data.package_path)
 
-    index = loader.tasks['task_name']
+    index = loader.tasks[task_name]
+    tags = []
+    offsets = []
+    for name in index['names']:
+        if 'trial' not in name:
+            tags.append(name)
+            offsets.append(Filename(name).offset)
 
-    # set of all branches
-    tags = 
+    datasets = []
+    # for each DS
+    for branch_offset in offsets:
+        if branch_offset == 0: continue
+        datasets.append(get_dataset_view(loader, tags=tags, at=slice(branch_offset-e/2.0, branch_offset+e/2.0), file_names=index['names']))
 
-    branch_offset: int = 49
-    tags = ['d1_peg_pick', 'd1_peg_pick_branch_at_49'] # label: 0, 1  
-
-    at = slice(branch_offset-e/2.0, branch_offset+e/2.0)
-
-    return get_dataset_view(loader, tags=tags, at=at,
-        file_names=file_names)
-
+    return datasets
+    

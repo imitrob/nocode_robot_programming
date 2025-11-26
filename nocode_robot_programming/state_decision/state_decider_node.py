@@ -1,18 +1,23 @@
 
 import rclpy, time
 from rclpy.node import Node
-from std_srvs.srv import Trigger
 import argparse
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32, String
 from cv_bridge import CvBridgeError, CvBridge
 
 from video_embedding.utils import visualize_video_frame_with_text
+from lfd_msgs.srv import StringService
+
+from nocode_robot_programming.state_decision.dataset_auto import auto_load
 
 from skills_manager.ros_utils import SpinningRosNode
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 
+import threading
+
 WARNING_WHEN_IMAGE_OLDER_THAN = 0.2 # sec
+MAX_TRAIN_TIME = 10.0 # sec
 
 class StateDeciderNode(SpinningRosNode):
     def __init__(self, method: str):
@@ -36,7 +41,7 @@ class StateDeciderNode(SpinningRosNode):
         else: raise Exception(f"Method '{method}' is not implemented!")
 
         
-        self.create_service(Trigger, "/state_decider_retrain", self.retrain, qos_profile=QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT), callback_group=self.callback_group)
+        self.create_service(StringService, "/state_decider_retrain", self.train_call, qos_profile=QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT), callback_group=self.callback_group)
         self.create_subscription(Image, "/modified_img", self.image_callback, 5)
         self.bridge = CvBridge()
         self.state_pub = self.create_publisher(String, "/target_state", 5)
@@ -45,9 +50,26 @@ class StateDeciderNode(SpinningRosNode):
         self.curr_image = None
         self.curr_image_timestamp = 0.0
 
-    def retrain(self, msg, res):
-        raise Exception("TODO:")
+        self.training_request = threading.Event()
+        self.training_finished = threading.Event()
+
+        self.task_name: str | None = None
+
+    def train_call(self, msg, res):
+        self.task_name = msg.text
+        self.training_finished.clear()
+        self.training_request.set()
+        if not self.training_finished.wait(MAX_TRAIN_TIME):
+            raise Exception("Training not finished in time, adjust MAX_TRAIN_TIME")
         return res
+
+    def train(self):
+        assert self.task_name is not None
+
+        dataset = auto_load(self.task_name)
+
+        self.model.train(dataset.X, dataset.y_int, dataset.y_cls)
+        time.sleep(5)
 
     def image_callback(self, msg):
         try:
@@ -70,7 +92,7 @@ class StateDeciderNode(SpinningRosNode):
         self.state_pub.publish(String(data=target_name))
         return target_name
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     parser = argparse.ArgumentParser(description="State Decider Node")
     parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/BASE', choices=["SIFT", "DINO", "AEGP", "BASE"], default="BASE")
     args = parser.parse_args()
@@ -81,6 +103,13 @@ if __name__ == "__main__":
     while rclpy.ok(): # predict thread
         t0 = time.perf_counter()
         
+        if node.training_request.is_set():
+            node.training_request.clear()
+            print("Training in progress", flush=True)
+            node.train()
+            node.training_finished.set()
+            print("Training finished", flush=True)
+
         target_name = node.predict()
         if node.curr_image is not None:
             visualize_video_frame_with_text(node.curr_image, text=target_name[-8:])

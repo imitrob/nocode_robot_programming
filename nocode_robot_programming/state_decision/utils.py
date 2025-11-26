@@ -108,38 +108,116 @@ def add_tag(filename: str, tag: str):
     data.close()
 
 
-class Filename():
-    """ With filename: 'peg_pick_branch_at_123_trial_4', it extracts:
-            - task name: 'peg_pick'
-            - offset timestep: 123
-            - trial number: 4
+# class Filename():
+#     """ With filename: 'peg_pick_branch_at_123_trial_4', it extracts:
+#             - task name: 'peg_pick'
+#             - offset timestep: 123
+#             - trial number: 4
+#     """
+#     branch_suffix = "branch_at"
+#     trial_suffix = "trial"
+#     def __init__(self, filename: str):
+#         """ filename can be either with or without ".npz" extension
+#         """
+#         if filename[-4:] == ".npz":
+#             self.filename = filename
+#             self.name: str = self.filename[:-4] # without npz
+#         else:
+#             self.filename = filename + ".npz"
+#             self.name = filename
+
+#         trial_split = self.name.split(f"_{self.trial_suffix}_")
+#         before_trial_suffix = trial_split[0]
+#         if len(trial_split) > 1:
+#             self.trial: int = int(self.name.split(f"_{self.trial_suffix}_")[1])
+#         else:
+#             self.trial: int = -1 # initial (nominal) demonstration
+
+#         branch_split = before_trial_suffix.split(f"_{self.branch_suffix}_")
+#         if len(branch_split) > 1:
+#             self.offset: int = int(before_trial_suffix.split(f"_{self.branch_suffix}_")[1])
+
+
+#         else:
+#             self.offset: int = 0
+
+#         self.task: str = branch_split[0]
+
+class Filename:
     """
-    branch_suffix = "branch_at"
+    Filename parser.
+
+    Supported patterns (with or without '.npz'):
+
+    - 'p0_peg_pick'
+        task='p0_peg_pick', offset=0, parent_offset=None, trial=-1
+
+    - 'p0_peg_pick_trial_0'
+        task='p0_peg_pick', offset=0, parent_offset=None, trial=0
+
+    - 'p0_peg_pick_branch_at_39'
+        task='p0_peg_pick', offset=39, parent_offset=0, trial=-1  # branch from root demo
+
+    - 'p0_peg_pick_branch_from_29_at_158'
+        task='p0_peg_pick', offset=158, parent_offset=29, trial=-1
+
+    - 'p0_peg_pick_branch_from_0_at_158'
+        task='p0_peg_pick', offset=158, parent_offset=0, trial=-1
+    """
+
+    branch_suffix = "branch_at"        # old format
+    branch_from_suffix = "branch_from" # new format
     trial_suffix = "trial"
+
     def __init__(self, filename: str):
-        """ filename can be either with or without ".npz" extension
-        """
-        if filename[-4:] == ".npz":
+        # Normalize extension
+        if filename.endswith(".npz"):
             self.filename = filename
-            self.name: str = self.filename[:-4] # without npz
+            self.name: str = filename[:-4]  # without '.npz'
         else:
             self.filename = filename + ".npz"
             self.name = filename
 
+        # Parse trial suffix
         trial_split = self.name.split(f"_{self.trial_suffix}_")
         before_trial_suffix = trial_split[0]
-        if len(trial_split) > 1:
-            self.trial: int = int(self.name.split(f"_{self.trial_suffix}_")[1])
-        else:
-            self.trial: int = -1 # initial (nominal) demonstration
 
+        if len(trial_split) > 1:
+            # everything after "_trial_" is the integer trial id
+            self.trial: int = int(trial_split[1])
+        else:
+            self.trial = -1  # -1 = demonstration (no explicit trial)
+
+        # default values (will be overwritten if we detect branches)
+        self.offset: int = 0
+        self.parent_offset = None
+
+        # New format: {task}_branch_from_{parent}_at_{offset}
+        parent_split = before_trial_suffix.split(f"_{self.branch_from_suffix}_")
+        if len(parent_split) > 1:
+            # parent_split[0] = task, parent_split[1] = '{parent}_at_{offset}'
+            parent_and_at = parent_split[1].split("_at_")
+            if len(parent_and_at) == 2:
+                self.task: str = parent_split[0]
+                self.parent_offset = int(parent_and_at[0])
+                self.offset = int(parent_and_at[1])
+                return  # we're done
+
+        # Old format: {task}_branch_at_{offset}
         branch_split = before_trial_suffix.split(f"_{self.branch_suffix}_")
         if len(branch_split) > 1:
-            self.offset: int = int(before_trial_suffix.split(f"_{self.branch_suffix}_")[1])
+            # branch from root demo (offset 0)
+            self.task = branch_split[0]
+            self.offset = int(branch_split[1])
+            self.parent_offset = 0
         else:
-            self.offset: int = 0
+            # No branch info at all: root demonstration
+            self.task = before_trial_suffix
 
-        self.task: str = branch_split[0]
+    @property
+    def is_demo(self) -> bool:
+        """True if this is a demonstration (no trial)."""
+        return self.trial == -1
 
 
 def _ellipsize(items: List[str], max_chars: int = 60, sep: str = ", ") -> str:
