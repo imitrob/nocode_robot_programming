@@ -368,6 +368,62 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
     train, test, models, tasks = _ensure_arrays(train_2d, test_2d, model_names, task_names)
     out_path = _safe_dir(out_dir)
 
+    difficulty_group = []
+    modality_group = []
+    task_group = []
+    diff_mod_group = []
+    for task_name in task_names:
+        difficulty_group.append( task_name.split(" ")[-1] )
+        modality_group.append( task_name.split(" ")[-2] )
+        task_group.append( " ".join(task_name.split(" ")[:-2]) )
+        diff_mod_group.append( " ".join(task_name.split(" ")[-2:]) )
+
+    difficulty_means = []
+    modality_means = []
+    task_means = []
+    diff_mod_means = []
+
+    a_idxs = None
+    b_idxs = None
+    c_idxs = None
+    d_idxs = None
+    for model_values in test_2d:
+        a_ = pd.Series(np.array(model_values)).groupby(difficulty_group).mean()
+        if a_idxs is not None:
+            assert a_.index.to_list() == a_idxs, f"{a_.index.to_list()} != {difficulty_group}"
+        a_idxs = a_.index.to_list()
+
+        b_ = pd.Series(np.array(model_values)).groupby(modality_group).mean()
+        if b_idxs is not None:    
+            assert b_.index.to_list() == b_idxs, f"{b_.index.to_list()} != {modality_group}"
+        b_idxs = b_.index.to_list()
+
+        c_ = pd.Series(np.array(model_values)).groupby(task_group).mean()
+        if c_idxs is not None:
+            assert c_.index.to_list() == c_idxs, f"{c_.index.to_list()} != {task_group}"
+        c_idxs = c_.index.to_list()
+
+        d_ = pd.Series(np.array(model_values)).groupby(diff_mod_group).mean()
+        if d_idxs is not None:
+            assert d_.index.to_list() == d_idxs, f"{d_.index.to_list()} != {diff_mod_group}"
+        d_idxs = d_.index.to_list()
+
+        difficulty_means.append(a_.to_list())
+        modality_means.append(b_.to_list())
+        task_means.append(c_.to_list())
+        diff_mod_means.append(d_.to_list())
+    
+    print("   difficulty_means  ", difficulty_means)
+    
+    plot_heatmap(np.array(difficulty_means), a_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfcly_group.png", jupyter_plot)
+    plot_heatmap(np.array(modality_means), b_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_mdlt_group.png", jupyter_plot)
+    if jupyter_plot:
+        ipt.show()
+    plot_heatmap(np.array(task_means), c_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_task_group.png", jupyter_plot)
+    plot_heatmap(np.array(diff_mod_means), d_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfclt_task_group.png", jupyter_plot)
+    if jupyter_plot:
+        ipt.show()
+
     # Summary DataFrame
     cols = pd.MultiIndex.from_product([["Train", "Test"], tasks], names=["Split", "Task"])
     df = pd.DataFrame(index=models, columns=cols, dtype=float)
