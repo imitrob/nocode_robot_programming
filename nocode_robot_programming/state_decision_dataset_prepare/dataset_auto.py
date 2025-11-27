@@ -1,9 +1,10 @@
-from nocode_robot_programming.state_decision.utils import Filename
-from nocode_robot_programming.state_decision.dataloader import ImageDatasetView, saved_img_processing
 import torch
 from copy import deepcopy
-from nocode_robot_programming.state_decision.dataloader import TrajectoryDataset
+
 import trajectory_data
+from nocode_robot_programming.state_decision.utils import Filename
+from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset, ImageDatasetView, saved_img_processing
+from nocode_robot_programming.state_decision_dataset_prepare.decision_state_clustering import cluster
 
 def get_dataset_view(datafileloader, file_names: list[str], tags: list[str] = [], at: slice = slice(35,85)) -> ImageDatasetView:
     """ Fileloader used to create dataset
@@ -52,23 +53,21 @@ def get_dataset_view(datafileloader, file_names: list[str], tags: list[str] = []
 
     return ImageDatasetView(X=X, Xt=Xt, y_int=y_int, y_names=y_names, y_cls=tags)
 
-def load_dataset_separated_ds(task_name: str, e: int = 10):
+def load_dataset(loader, task_name: str, e: int = 10):
     
-    loader = TrajectoryDataset(trajectory_data.package_path)
+    decision_states = cluster(loader.tasks[task_name])
+    print("Decision states: ", decision_states)
 
     index = loader.tasks[task_name]
-    tags = []
-    offsets = []
-    for name in index['names']:
-        if 'trial' not in name:
-            tags.append(name)
-            offsets.append(Filename(name).offset)
 
     datasets = []
-    # for each DS
-    for branch_offset in offsets:
-        if branch_offset == 0: continue
-        datasets.append(get_dataset_view(loader, tags=tags, at=slice(branch_offset-e/2.0, branch_offset+e/2.0), file_names=index['names']))
+    for ds in decision_states:
+
+        file_names = []
+        for name in index['names']:
+            if Filename(name).before_trial_suffix in ds['relevant_parts']:
+                file_names.append(name) 
+        datasets.append(get_dataset_view(loader, tags=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=file_names))
 
     return datasets
     

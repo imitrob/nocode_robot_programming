@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2 as cv
 
 import trajectory_data
-from nocode_robot_programming.state_decision.task_graph import TaskGraph
+from nocode_robot_programming.task_graph.task_graph import TaskGraph
 from nocode_robot_programming.state_decision.utils import Filename, _ellipsize, _minmax, To01FromDtype, saved_img_processing, saved_img_processing_old
 from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gray_video_cuda_captions
 from IPython.display import display, HTML
@@ -69,12 +69,14 @@ class TrajectoryDataset(TaskGraph, Dataset):
             ...
           }
         """
-        index = defaultdict(lambda: {"names": [], "offsets": [], "trials": [], "files": [], "tags": []})
+        index = defaultdict(lambda: {"names": [], "offsets": [], "trials": [], "files": [], "tags": [], "lengths": [], "parent_offsets": []})
         for f in self.names: 
             f_ = Filename(f)
             entry = index[f_.task]
             entry["names"].append(f_.name)
             entry["offsets"].append(int(f_.offset))
+            entry["parent_offsets"].append(f_.parent_offset)
+            entry["lengths"].append(self[f_.name]["length"])
             entry["trials"].append(int(f_.trial))
             entry["files"].append(f)
             if 'tag' in self[f].keys():

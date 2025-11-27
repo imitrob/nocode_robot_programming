@@ -412,12 +412,8 @@ def create_app(
     return app
 
 
-def visualize_taskgraph(task_name: str, loader, inline: bool = True):
-    raw_names = loader.tasks[task_name]['names']
-    length_lookup = {}
-    for raw_name in raw_names:
-        if "trial" not in raw_name:
-            length_lookup[raw_name] = loader[raw_name]['length']
+def visualize_task_graph(raw_names, length_lookup, inline: bool = True):
+
     filenames = [Filename(name) for name in raw_names]
 
     run_kwargs = dict(

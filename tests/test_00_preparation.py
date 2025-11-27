@@ -12,7 +12,7 @@ def test_import_modules():
 def test_import_modules2():
     import trajectory_data
     import matplotlib.pyplot as plt
-    from nocode_robot_programming.state_decision.dataloader import TrajectoryDataset
+    from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
     from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresence
     from nocode_robot_programming.state_decision.SIFT_model import StateDeciderSIFT
     from nocode_robot_programming.state_decision.AEGP_model import AEGP
@@ -24,21 +24,21 @@ def test_import_modules2():
 
     from trajectory_data.skill_visualizer import play_video
     from nocode_robot_programming.state_decision.utils import add_tag
-    from nocode_robot_programming.state_decision.dataloader import ImageDatasetView, saved_img_processing
+    from nocode_robot_programming.state_decision_dataset_prepare.dataloader import ImageDatasetView, saved_img_processing
 
     seed = 50
     np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
 
-    from nocode_robot_programming.state_decision.dataset_D1 import d1_peg_pick, dupl
+    from nocode_robot_programming.state_decision_dataset_prepare.dataset_D1 import d1_peg_pick, dupl
     datafileloader = TrajectoryDataset(trajectory_data.package_path)
     datasets = d1_peg_pick(datafileloader)
 
 
 def test_d1_dataset_loaded():
-    from nocode_robot_programming.state_decision.dataloader import TrajectoryDataset
+    from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
     import trajectory_data
     import torch
-    from nocode_robot_programming.state_decision.dataset_D1 import d1_peg_pick, dupl
+    from nocode_robot_programming.state_decision_dataset_prepare.dataset_D1 import d1_peg_pick, dupl
     datafileloader = TrajectoryDataset(trajectory_data.package_path)
 
     datasets = d1_peg_pick(datafileloader)

@@ -3,28 +3,6 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from typing import List, Dict
 
-from nocode_robot_programming.state_decision.utils import Filename
-
-class TaskGraph:
-
-    def get_length(self, skill_name: str):
-        return self[skill_name]['length']
-
-    def get_task_graph_structure(self, skill_name: str, branch_window: int = 3):
-        # names: "user_0_kine_peg_pick", "user_0_kine_peg_pick_0", "user_0_kine_peg_pick_1", "user_0_kine_peg_pick_2", ...
-        filenames = self.names
-        assert skill_name in filenames, "Not found root skill variant"
-
-        # filter the skills with this name
-        plot_branches = []
-        for file in filenames:
-            # the same root name, e.g., "user_0_kine_peg_pick..."
-            if not (skill_name in file):
-                continue
-            f = Filename(file)
-            plot_branches.append({"name": file, "start": f.offset, "length": self.get_length(file)})
-
-        plot_task_graph(skill_name, plot_branches, branch_window, title=f"Task Graph: {skill_name}")
 
 def plot_task_graph(
     skill_name: str,

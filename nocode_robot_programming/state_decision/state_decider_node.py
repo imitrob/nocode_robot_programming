@@ -2,19 +2,21 @@
 import rclpy, time
 from rclpy.node import Node
 import argparse
+import threading
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32, String
 from cv_bridge import CvBridgeError, CvBridge
-
-from video_embedding.utils import visualize_video_frame_with_text
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from lfd_msgs.srv import StringService
 
-from nocode_robot_programming.state_decision.dataset_auto import auto_load
-
+from video_embedding.utils import visualize_video_frame_with_text
+from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import load_dataset
+from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
+import trajectory_data
 from skills_manager.ros_utils import SpinningRosNode
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy
-
-import threading
+from nocode_robot_programming.state_decision_dataset_prepare.decision_state_clustering import cluster
+from nocode_robot_programming.state_decision.utils import Filename
+from nocode_robot_programming.state_decision.manual_switch import manual_switch_keyboard
 
 WARNING_WHEN_IMAGE_OLDER_THAN = 0.2 # sec
 MAX_TRAIN_TIME = 10.0 # sec
@@ -55,6 +57,8 @@ class StateDeciderNode(SpinningRosNode):
 
         self.task_name: str | None = None
 
+        self.loader = TrajectoryDataset(trajectory_data.package_path)
+
     def train_call(self, msg, res):
         self.task_name = msg.text
         self.training_finished.clear()
@@ -66,7 +70,7 @@ class StateDeciderNode(SpinningRosNode):
     def train(self):
         assert self.task_name is not None
 
-        dataset = auto_load(self.task_name)
+        dataset = load_dataset(self.loader, self.task_name)
 
         self.model.train(dataset.X, dataset.y_int, dataset.y_cls)
         time.sleep(5)
@@ -80,6 +84,16 @@ class StateDeciderNode(SpinningRosNode):
         except CvBridgeError as e:
             print(e)
 
+    def get_options(self, timestep: int):
+
+        ds = cluster(self.loader.tasks[self.task_name])
+
+        for ds_ in ds:
+            if ds_['start'] <= self.timestep <= ds_['end']:
+                return ds_['relevant_parts']
+
+        raise Exception(f"timestep {self.timestep} not link to any DS from ({ds})")
+
     def predict(self):
         if self.curr_image is None:
             print("Not receiving image from '/modified_img' topic", flush=True)
@@ -88,6 +102,12 @@ class StateDeciderNode(SpinningRosNode):
             print(f"Image too old: {round(time.time() - self.curr_image_timestamp, 2)} sec", flush=True)
 
         target_name = self.model.predict(self.curr_image, self.timestep)
+        
+        if target_name == "choose":
+            options = self.get_options(self.timestep)
+            # TODO: Choose switch method
+            target_name = manual_switch_keyboard(options)
+
         print(f"{target_name=}")
         self.state_pub.publish(String(data=target_name))
         return target_name
