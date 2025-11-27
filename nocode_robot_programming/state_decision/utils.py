@@ -180,7 +180,7 @@ class Filename:
 
         # Parse trial suffix
         trial_split = self.name.split(f"_{self.trial_suffix}_")
-        before_trial_suffix = trial_split[0]
+        self.before_trial_suffix = trial_split[0]
 
         if len(trial_split) > 1:
             # everything after "_trial_" is the integer trial id
@@ -193,7 +193,7 @@ class Filename:
         self.parent_offset = None
 
         # New format: {task}_branch_from_{parent}_at_{offset}
-        parent_split = before_trial_suffix.split(f"_{self.branch_from_suffix}_")
+        parent_split = self.before_trial_suffix.split(f"_{self.branch_from_suffix}_")
         if len(parent_split) > 1:
             # parent_split[0] = task, parent_split[1] = '{parent}_at_{offset}'
             parent_and_at = parent_split[1].split("_at_")
@@ -204,7 +204,7 @@ class Filename:
                 return  # we're done
 
         # Old format: {task}_branch_at_{offset}
-        branch_split = before_trial_suffix.split(f"_{self.branch_suffix}_")
+        branch_split = self.before_trial_suffix.split(f"_{self.branch_suffix}_")
         if len(branch_split) > 1:
             # branch from root demo (offset 0)
             self.task = branch_split[0]
@@ -212,7 +212,7 @@ class Filename:
             self.parent_offset = 0
         else:
             # No branch info at all: root demonstration
-            self.task = before_trial_suffix
+            self.task = self.before_trial_suffix
 
     @property
     def is_demo(self) -> bool:

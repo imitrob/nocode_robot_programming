@@ -23,6 +23,12 @@ def get_dataset_view(datafileloader, file_names: list[str], tags: list[str] = []
         nsamples = imgs.shape[0]
         
         tag = datafileloader[file]['tag']
+        print_note_once = True
+        if tag == '':
+            if print_note_once:
+                print("tag missing", flush=True)
+                print_note_once = False
+            tag = f.before_trial_suffix
         i = tags.index(tag)
         xt = torch.arange(f.offset, f.offset + nsamples)  # shape (nsamples,)
         

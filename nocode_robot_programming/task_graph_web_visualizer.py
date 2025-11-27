@@ -13,14 +13,11 @@ def build_task_graph(
     filenames: List[Filename],
     length_lookup: Optional[Dict[str, int]] = None,
 ):
+    """ Build nodes and edges from a list of Filename objects.
+        - Only filenames with trial == -1 (demos/branches) become nodes.
+        - Trials are counted per node but not included as nodes.
+        - Each node optionally has a 'length' (number of timesteps).
     """
-    Build nodes and edges from a list of Filename objects.
-
-    - Only filenames with trial == -1 (demos/branches) become nodes.
-    - Trials are counted per node but not included as nodes.
-    - Each node optionally has a 'length' (number of timesteps).
-    """
-
     def demo_key(f: Filename) -> Tuple[str, Optional[int], int]:
         # (task, parent_offset, offset) uniquely identifies a demonstration/branch
         return (f.task, getattr(f, "parent_offset", None), f.offset)
@@ -103,13 +100,11 @@ def build_topology_figure(
     edges: List[Tuple[int, int]],
     depths: Dict[int, int],
 ) -> go.Figure:
+    """ Graph 1: Topology view
+        - No timestep axis.
+        - Nodes float in space in a hierarchical left-to-right layout.
+        - Initial sample is on the left center; branches fan out to the right.
     """
-    Graph 1: Topology view
-    - No timestep axis.
-    - Nodes float in space in a hierarchical left-to-right layout.
-    - Initial sample is on the left center; branches fan out to the right.
-    """
-
     # Assign positions based on depth: x = depth, y spaced within each depth
     depth_to_nodes: Dict[int, List[int]] = defaultdict(list)
     for n in nodes:
@@ -207,12 +202,11 @@ def build_timeline_figure(
     edges: List[Tuple[int, int]],
     depths: Dict[int, int],
 ) -> go.Figure:
-    """
-    Graph 2: Timeline view
-    - x-axis = timestep (offset).
-    - Each demo node sits at its starting offset.
-    - Each demo has a horizontal bar from offset to offset + length (if known).
-    - Branching shown at a single timestep with a vertical, directed edge (arrow).
+    """ Graph 2: Timeline view
+        - x-axis = timestep (offset).
+        - Each demo node sits at its starting offset.
+        - Each demo has a horizontal bar from offset to offset + length (if known).
+        - Branching shown at a single timestep with a vertical, directed edge (arrow).
     """
 
     # Give each node a distinct y within its depth band to avoid overlapping bars
@@ -305,7 +299,7 @@ def build_timeline_figure(
 
     # Directed vertical edges (arrows):
     #   For edge u->v, use a single x (child's timestep) and different y's.
-    # group edges by x-position (timestep), not by child id
+    # group edges by x-position (timestep)
     edges_by_x = defaultdict(list)
     for u, v in edges:
         child_x = nodes[v]["time_x"]
@@ -325,9 +319,9 @@ def build_timeline_figure(
             offset = (i - (n_at_x - 1) / 2.0) * arrow_dx
 
             fig.add_annotation(
-                x=child_x,                # head at exact timestep
+                x=child_x,  # head at exact timestep
                 y=child_y,
-                ax=child_x + offset,      # tail slightly shifted left/right
+                ax=child_x + offset,  # tail slightly shifted left/right
                 ay=parent_y,
                 xref="x",
                 yref="y",
@@ -436,7 +430,7 @@ def visualize_taskgraph(task_name: str, loader, inline: bool = True):
 
     app = create_app(filenames, length_lookup=length_lookup)
     if inline:
-        app.run(jupyter_mode="inline", jupyter_height=400, **run_kwargs)
+        app.run(jupyter_mode="inline", jupyter_height=450, **run_kwargs)
     else:
         app.run(jupyter_mode="tab", **run_kwargs)
 
