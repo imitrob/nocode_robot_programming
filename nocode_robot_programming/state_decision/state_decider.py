@@ -24,6 +24,9 @@ class StateDeciderBase():
     def predict_many(self, X):
         return [self.predict(x) for x in X]
 
+class StateDeciderManual(StateDeciderBase):
+    def __init__(self):
+        raise Exception("TODO:")
 
 class StateDeciderMultiModel():
     def __init__(self, modelfactory):

@@ -91,7 +91,7 @@ class TeleoperationByDrawing(HandListener):
                  teleop_hand: str = "l", 
                  teleop_aux_hand: str = "r",
                  link_gesture: str = "grab_strength",
-                 teleop_scale: float = 1.0,
+                 teleop_scale: float = 0.3,
                  teleop_rotate_eef: bool = True,
                  ):
         """
@@ -134,7 +134,7 @@ class TeleoperationByDrawing(HandListener):
 
     def is_gesture_activated(self, hand, gesture):
         if self.is_hand_visible(hand):
-            if getattr(getattr(self.hand_frames[-1],hand),gesture) > 0.8:
+            if getattr(getattr(self.hand_frames[-1],hand),gesture) > 0.5:
                 return True
         return False
 
