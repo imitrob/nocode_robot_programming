@@ -9,7 +9,7 @@ import cv2 as cv
 import trajectory_data
 from nocode_robot_programming.task_graph.task_graph import TaskGraph
 from nocode_robot_programming.state_decision.utils import Filename, _ellipsize, _minmax, To01FromDtype, saved_img_processing, saved_img_processing_old
-from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gray_video_cuda_captions
+from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gray_video_cuda_captions, show_gray_video_cuda_captions_aligned
 from IPython.display import display, HTML
 
 class TimestepView(dict):
@@ -278,6 +278,12 @@ class ImageDatasetView(Dataset):
         self.y_names = y_names # len(y_names) = samples
         self.y_cls = y_cls # len(y_cls) = "number of skill variants - files"
     
+    def timestep_range(self) -> tuple[int,int]:
+        """ gets timestep range (mu-2*std, mu+2*std) of used dataset view images """
+        mu =    self.Xt.float().mean()
+        std = self.Xt.float().std()
+        return int(mu - 2*std), int(mu + 2*std)
+
     def y_decode(self, y_int):
         return self.y_cls[y_int]
     
@@ -333,3 +339,16 @@ class ImageDatasetView(Dataset):
         for i,name in zip(self.y_int, self.y_names):
             captions.append(f"y={i},{name}")
         display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=captions))
+
+    def showcase_aligned(self, fps: int = 20, scale: int = 5):
+        captions = []
+        for i,name in zip(self.y_int, self.y_names):
+            captions.append(f"y={i},{name}")
+        display(show_gray_video_cuda_captions_aligned(
+            self.X,
+            fps=fps,
+            scale=scale,
+            captions=captions,
+            Xt=self.Xt,          # shape [T], ints
+            max_rows=8           # optional, default 8
+        ))

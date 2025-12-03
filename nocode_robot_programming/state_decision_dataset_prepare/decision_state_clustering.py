@@ -2,9 +2,9 @@
 from typing import Iterable, List, Tuple, Dict
 import math
 
-def cluster(task_index):
+def cluster(task_index, window_size: int = 10):
     non_zero_offsets = [item for item in task_index['offsets'] if item != 0]
-    windows = cluster_branching_windows(non_zero_offsets, 10)['windows']
+    windows = cluster_branching_windows(non_zero_offsets, window_size=window_size)['windows']
     
     relevant_names = relevant_skillparts(task_index, windows)
 
