@@ -60,6 +60,8 @@ class JoystickConnector():
         # pause on click once
         self.paused_before = False
 
+        self.joy_thread_running = False
+
     def _joy_open(self) -> Optional[InputDevice]:
         try:
             return InputDevice(self.joy_path)
@@ -143,16 +145,20 @@ class JoystickConnector():
 
 
     def joy_stop(self):
-        self._joy_stop.set()
-        self._joy_thread_listener.join(timeout=1)
-        self._joy_thread_control.join(timeout=1)
+        if self.joy_thread_running:
+            self._joy_stop.set()
+            self._joy_thread_listener.join(timeout=1)
+            self._joy_thread_control.join(timeout=1)
+            self.joy_thread_running = False
 
     def joy_start(self):
-        self._joy_stop.clear()
-        self._joy_thread_listener = threading.Thread(target=self._joy_listener_run, daemon=True)
-        self._joy_thread_listener.start()
-        self._joy_thread_control = threading.Thread(target=self._joy_thread_start, daemon=True)
-        self._joy_thread_control.start()
+        if not self.joy_thread_running:
+            self.joy_thread_running = True
+            self._joy_stop.clear()
+            self._joy_thread_listener = threading.Thread(target=self._joy_listener_run, daemon=True)
+            self._joy_thread_listener.start()
+            self._joy_thread_control = threading.Thread(target=self._joy_thread_start, daemon=True)
+            self._joy_thread_control.start()
 
     def _joy_thread_start(self):
         try:

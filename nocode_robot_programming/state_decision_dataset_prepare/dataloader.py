@@ -278,11 +278,13 @@ class ImageDatasetView(Dataset):
         self.y_names = y_names # len(y_names) = samples
         self.y_cls = y_cls # len(y_cls) = "number of skill variants - files"
     
-    def timestep_range(self) -> tuple[int,int]:
-        """ gets timestep range (mu-2*std, mu+2*std) of used dataset view images """
+    def timestep_range(self) -> dict[str, int | float]:
+        """ gets timestep range of used dataset view images """
         mu =    self.Xt.float().mean()
         std = self.Xt.float().std()
-        return int(mu - 2*std), int(mu + 2*std)
+        min = self.Xt.float().min()
+        max = self.Xt.float().max()
+        return {"mean": float(mu), "std": float(std), "min": int(min), "max": int(max)}
 
     def y_decode(self, y_int):
         return self.y_cls[y_int]

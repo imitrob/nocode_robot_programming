@@ -120,6 +120,8 @@ class TeleoperationByDrawing(HandListener):
         play_thread = threading.Thread(target=sound_thread, args=(self,), daemon=True)
         play_thread.start()
 
+        self.teleop_thr_running = False
+
     def teleop_has_control(self):
         return (self.teleop_trigger and self.is_hand_visible(self.teleop_hand))
             
@@ -139,11 +141,15 @@ class TeleoperationByDrawing(HandListener):
         return False
 
     def teleop_start(self):
-        self.teleop_thr = threading.Thread(target=self.teleop_thread_start, daemon=True)
-        self.teleop_thr.start()
+        if not self.teleop_thr_running:
+            self.teleop_thr_running = True
+            self.teleop_thr = threading.Thread(target=self.teleop_thread_start, daemon=True)
+            self.teleop_thr.start()
 
     def teleop_stop(self):
-        self.teleop_thr.join(timeout=1)
+        if self.teleop_thr_running:
+            self.teleop_thr.join(timeout=1)
+            self.teleop_thr_running = False
 
     def teleop_thread_start(self):
         self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]

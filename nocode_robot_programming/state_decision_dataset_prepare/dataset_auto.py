@@ -6,7 +6,7 @@ from nocode_robot_programming.state_decision.utils import Filename
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset, ImageDatasetView, saved_img_processing
 from nocode_robot_programming.state_decision_dataset_prepare.decision_state_clustering import cluster
 
-def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts: list[str], at: slice) -> ImageDatasetView:
+def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts: list[str], at: slice = slice(None,None)) -> ImageDatasetView:
     """ NO TAGS!    
         Fileloader used to create dataset
         1. Image preprocessing
@@ -22,18 +22,11 @@ def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts:
         f = Filename(file)
         idx = datafileloader.files.index(f"{datafileloader.dir}/{file}.npz")
         imgs = saved_img_processing(datafileloader[idx]['img'].squeeze()).squeeze()   # (nsamples, H, W)
-        if imgs.ndim == 2: # if nsmaples == 1
+        if imgs.ndim == 2: # if nsmaples == 1, squeeze squeezes too hard, we need ndim=3
             imgs = imgs.unsqueeze(0)
         nsamples = imgs.shape[0]
         
-        print_note_once = True
-        
-        if print_note_once:
-            print("tag missing", flush=True)
-            print_note_once = False
-        tag = f.before_trial_suffix
-        
-        i = relevant_parts.index(tag)
+        i = relevant_parts.index(f.before_trial_suffix)
 
         xt = torch.arange(f.offset, f.offset + nsamples)  # shape (nsamples,)
         
@@ -43,7 +36,7 @@ def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts:
             xt_sub   = xt[mask]
 
             y_int_sub   = torch.full((imgs_sub.shape[0],), i, dtype=torch.int)
-            y_names_sub = [tag] * imgs_sub.shape[0]
+            y_names_sub = [f.before_trial_suffix] * imgs_sub.shape[0]
 
             X_parts.append(imgs_sub)
             Xt_parts.append(xt_sub)
@@ -57,8 +50,10 @@ def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts:
 
     return ImageDatasetView(X=X, Xt=Xt, y_int=y_int, y_names=y_names, y_cls=relevant_parts)
 
-def load_dataset(loader, task_name: str, e: int = 10):
-    
+def load_dataset(loader, task_name: str, e: int = 10) -> tuple[list[ImageDatasetView], ImageDatasetView]:
+    """Returns two datasets: First selects images at each DS, Second contains all images
+    """
+
     decision_states = cluster(loader.tasks[task_name], e)
     print("Decision states: ", decision_states)
 
@@ -73,5 +68,8 @@ def load_dataset(loader, task_name: str, e: int = 10):
                 file_names.append(name) 
         datasets.append(get_auto_dataset_view(loader, relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=file_names))
 
-    return datasets
-    
+    file_names = loader.tasks[task_name]['names']
+    all_images_dataset = get_auto_dataset_view(loader, relevant_parts=file_names, at=slice(None, None), file_names=file_names)
+
+    return datasets, all_images_dataset
+

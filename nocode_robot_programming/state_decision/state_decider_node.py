@@ -16,7 +16,7 @@ import trajectory_data
 from skills_manager.ros_utils import SpinningRosNode
 from nocode_robot_programming.state_decision_dataset_prepare.decision_state_clustering import cluster
 from nocode_robot_programming.state_decision.utils import Filename
-from nocode_robot_programming.state_decision.manual_switch import manual_switch_keyboard
+from nocode_robot_programming.state_decision.state_decider_model_manager import StateDeciderModelManager
 
 WARNING_WHEN_IMAGE_OLDER_THAN = 0.2 # sec
 MAX_TRAIN_TIME = 10.0 # sec
@@ -27,22 +27,23 @@ class StateDeciderNode(SpinningRosNode):
 
         if method == "SIFT":
             from nocode_robot_programming.state_decision.SIFT_model import StateDeciderSIFT
-            self.model = StateDeciderSIFT()
+            model_factory = StateDeciderSIFT
         elif method == "DINO":
             from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresence
-            self.model = DINOFeaturePresence()
+            model_factory = DINOFeaturePresence
         elif method == "AEGP":
             from nocode_robot_programming.state_decision.AEGP_model import AEGP
-            self.model = AEGP()
+            model_factory = AEGP
         elif method == "MANUAL":
-            from nocode_robot_programming.state_decision.state_decider import StateDeciderManual
-            self.model = StateDeciderManual()
+            from nocode_robot_programming.state_decision.manual_state_decider import StateDeciderManual
+            model_factory = StateDeciderManual
         elif method == "BASE":
             from nocode_robot_programming.state_decision.state_decider import StateDeciderBase
-            self.model = StateDeciderBase()
+            model_factory = StateDeciderBase
         else: raise Exception(f"Method '{method}' is not implemented!")
 
-        
+        self.model_manager = StateDeciderModelManager(model_factory)
+
         self.create_service(StringService, "/state_decider_retrain", self.train_call, qos_profile=QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT), callback_group=self.callback_group)
         self.create_subscription(Image, "/modified_img", self.image_callback, 5)
         self.bridge = CvBridge()
@@ -70,10 +71,9 @@ class StateDeciderNode(SpinningRosNode):
     def train(self):
         assert self.task_name is not None
 
-        dataset = load_dataset(self.loader, self.task_name)
+        datasets, all_dataset = load_dataset(self.loader, self.task_name)
 
-        self.model.train(dataset.X, dataset.y_int, dataset.y_cls)
-        time.sleep(5)
+        self.model_manager.train(datasets, all_dataset)
 
     def image_callback(self, msg):
         try:
@@ -101,20 +101,19 @@ class StateDeciderNode(SpinningRosNode):
         if (time.time() - self.curr_image_timestamp) > WARNING_WHEN_IMAGE_OLDER_THAN:
             print(f"Image too old: {round(time.time() - self.curr_image_timestamp, 2)} sec", flush=True)
 
-        target_name = self.model.predict(self.curr_image, self.timestep)
+        target_name = self.model_manager.predict(self.curr_image, self.timestep)
         
-        if target_name == "choose":
+        if target_name == "manual_choose":
             options = self.get_options(self.timestep)
-            # TODO: Choose switch method
-            target_name = manual_switch_keyboard(options)
-
+            target_name += "|" + "|".join(options)
+            
         print(f"{target_name=}")
         self.state_pub.publish(String(data=target_name))
         return target_name
 
 if __name__ == "__main__": 
     parser = argparse.ArgumentParser(description="State Decider Node")
-    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/BASE', choices=["SIFT", "DINO", "AEGP", "BASE"], default="BASE")
+    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/BASE/MANUAL', choices=["SIFT", "DINO", "AEGP", "BASE", "MANUAL"], default="BASE")
     args = parser.parse_args()
 
     rclpy.init()

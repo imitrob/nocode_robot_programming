@@ -27,9 +27,9 @@ class StateDeciderManual(StateDeciderBase):
         ''' returns a target label class from y_cls (str) or "" for anomaly
         '''
         if timestep in self.ds:
-            return "choose"
+            return "manual_choose"
         else:
-            return self.target_label
+            return "continue"
     
     def predict_many(self, X):
         return [self.predict(x) for x in X]
