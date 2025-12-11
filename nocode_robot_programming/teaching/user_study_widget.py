@@ -3,6 +3,10 @@ from IPython.display import display
 import asyncio
 
 import tkinter as tk
+import time
+from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import load_dataset
+from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
+import trajectory_data
 
 def choose_with_popup(options, title="Choose target", master=None):
     """
@@ -45,7 +49,7 @@ def choose_with_popup(options, title="Choose target", master=None):
     sh = dialog.winfo_screenheight()
     x = (sw - width) // 2
     y = (sh - height) // 3
-    dialog.geometry(f"{width}x{height}+{x}+{y}")
+    dialog.geometry(f"{width}x{height}+{x+1000}+{y}")
     dialog.minsize(width, height)
 
     # Handle closing via window X
@@ -102,16 +106,30 @@ def choose_with_popup(options, title="Choose target", master=None):
     return chosen["value"]
 
 
-
+_busy = False
 
 def user_study_widget(lfd):
+    def single_run(handler):
+        """Ignore clicks while handler is still running and disable the button."""
+        def wrapped(btn):
+            global _busy
+            if _busy:
+                # already running, ignore this click
+                return
+            _busy = True
+            btn.disabled = True
+            try:
+                handler(btn)
+            finally:
+                _busy = False
+                btn.disabled = False
+        return wrapped
 
     def new_run_log(title: str, _run_counter, log_accordion) -> widgets.Output:
         """
         Create a new collapsible Output panel for a single record/play run.
         Returns the Output widget so you can 'with out:' print into it.
         """
-
         out = widgets.Output(
             layout=widgets.Layout(
                 max_height="600px",   # log area scrolls internally
@@ -136,21 +154,17 @@ def user_study_widget(lfd):
         _run_counter += 1
         return out
 
-    # ------------------------------------------------
-    # 1) Collapsible log manager (put this in a setup cell)
-    # ------------------------------------------------
     log_accordion = widgets.Accordion(children=[])
-    # display(log_accordion)   # or insert into your main dashboard layout instead
-
-    _run_counter = 0  # simple global counter
+    _run_counter = 0  # simple counter (you can fix this if you need real numbering)
 
     def human_record(task_name: str):
-        lfd.home_gripper(); lfd.move_template_start()
+        lfd.home_gripper()
+        lfd.move_template_start()
         lfd.traj_rec()
         lfd.save(task_name)
         lfd.show(task_name)
         lfd.move_template_start()
-    
+
     def normalize_person(p: str) -> str:
         """
         Normalize person input so user can type 'p1' or '1'
@@ -159,27 +173,34 @@ def user_study_widget(lfd):
         p = p.strip()
         if not p:
             return "p1"
-        return p if p.startswith("p") else f"p{p}"
+        return p
 
-
-    def build_task_name(include_modality: bool) -> str:
+    def build_task_name() -> str:
         """
         Build task_name according to current config.
-        - If include_modality=False:  p1_test
-        - If include_modality=True:   p1k_peg_pick
+        - If include_modality=True:   p1_kin_peg_pick (depending on modality)
         """
         person_norm = normalize_person(person_text.value)
         task_key = task_toggle.value       # 'test', 'peg_pick', 'probe', 'wrap'
-        if include_modality:
-            return f"{person_norm}{modality_toggle.value}_{task_key}"
-        else:
-            return f"{person_norm}_{task_key}"
+        return f"{person_norm}{modality_toggle.value}_{task_key}"
+        
+    def list_available_tasks() -> list[str]:
+        """
+        Return all available task names (without extensions).
+        """
+        import os, glob
+        base_dir = trajectory_data.package_path+"/trajectories"
+        paths = glob.glob(os.path.join(base_dir, "*.npz"))
+        return [
+            os.path.splitext(os.path.basename(p))[0]
+            for p in paths
+        ]
 
-
-    state = {
-        "last_test_task": None,
-        "last_final_task": None,
-    }
+    def task_file_exists(task_name: str) -> bool:
+        """
+        True if `task_name` exists among known tasks.
+        """
+        return task_name in list_available_tasks()
 
     person_text = widgets.Text(
         value="p1",
@@ -191,11 +212,11 @@ def user_study_widget(lfd):
 
     modality_toggle = widgets.ToggleButtons(
         options=[
-            ("Joystick (j)", "j"),
-            ("Kinesthetic (k)", "k"),
-            ("Gesture teleop (g)", "g"),
+            ("Joystick (joy)", "_joy"),
+            ("Kinesthetic (kin)", "_kin"),
+            ("Gesture teleop (gst)", "_gst"),
         ],
-        value="k",
+        value="_kin",
         description="Modality (tag in task name, not checking what modality used):",
         style={"description_width": "80px"},
     )
@@ -212,12 +233,28 @@ def user_study_widget(lfd):
         style={"description_width": "80px"},
     )
 
+    file_status_label = widgets.HTML(
+        value="",
+        layout=widgets.Layout(margin="4px 0px 0px 0px"),
+    )
+
+    matching_files_label = widgets.HTML(
+        value="",
+        layout=widgets.Layout(
+            margin="4px 0px 0px 0px",
+            max_height="140px",
+            overflow="auto",
+        ),
+    )
+
     config_box = widgets.VBox(
         [
             widgets.HTML("<b>Configuration</b>"),
             person_text,
             modality_toggle,
             task_toggle,
+            file_status_label,
+            matching_files_label,
         ],
         layout=widgets.Layout(
             border="1px solid #ccc",
@@ -226,7 +263,9 @@ def user_study_widget(lfd):
         ),
     )
 
-    log_out = widgets.Output(layout=widgets.Layout(border="1px solid #eee", padding="4px"))
+    log_out = widgets.Output(
+        layout=widgets.Layout(border="1px solid #eee", padding="4px")
+    )
 
     btn_final_record = widgets.Button(
         description="● Record teaching",
@@ -234,65 +273,25 @@ def user_study_widget(lfd):
         layout=widgets.Layout(width="250px"),
     )
 
-    btn_retrain = widgets.Button(
-        description="Retrain model",
-        tooltip="Runs training procedure on all collected skill parts and trial recordings.",
-        layout=widgets.Layout(width="250px"),
-        disabled=True,
-    )
-
     btn_play_final = widgets.Button(
-        description="▶ Play last",
-        tooltip="Play last recorded final task",
+        description="▶ Play",
+        tooltip="Play recorded final task",
         layout=widgets.Layout(width="250px"),
-        disabled=True,
+        disabled=True,   # will be updated based on file existence
     )
 
-    def on_final_record_clicked(_):
-        task_name = build_task_name(include_modality=True)   # e.g. p1k_peg_pick
-        state["last_final_task"] = task_name
-
-        log_out = new_run_log(f"Record {task_name}", _run_counter, log_accordion)
-        with log_out:
-            log_out.clear_output()
-            print(f"[teaching] Recording task: {task_name}")
-            human_record(task_name)
-
-        # Enable play button for this recording
-        btn_retrain.description = f"Retrain on {task_name}"
-        btn_retrain.disabled = False
-
-    def on_retrain_clicked(_):
-        task_name = state["last_final_task"]
-
-        log_out = new_run_log(f"Retraining {task_name}", _run_counter, log_accordion)
-        with log_out:
-            log_out.clear_output()
-            print(f"[retraining] Recording task: {task_name}")
-            lfd.retrain(task_name)
-
-        # Enable play button for this recording
-        btn_play_final.description = f"▶ Play {task_name}"
-        btn_play_final.disabled = False
-
-
-    async def on_play_final_clicked(_):
-        task_name = state["last_final_task"]
-        if task_name is None:
-            return
-        run_log = new_run_log(f"Play {task_name}", _run_counter, log_accordion)
-        with run_log:
-            print(f"[PLAY] Playing: {task_name}")
-            lfd.play_skill(task_name, None, localize_box=False)
-
-    btn_final_record.on_click(on_final_record_clicked)
-    btn_retrain.on_click(on_retrain_clicked)
-    btn_play_final.on_click(on_play_final_clicked)
+    btn_taskgraph_final = widgets.Button(
+        description="Task graph",
+        tooltip="Generate recorded task",
+        layout=widgets.Layout(width="250px"),
+    )
 
     teaching_box = widgets.VBox(
         [
             widgets.HTML(""),
-            widgets.HBox([btn_final_record, btn_retrain, btn_play_final]),
+            widgets.HBox(
+                [btn_final_record, btn_play_final, btn_taskgraph_final]
+            ),
         ],
         layout=widgets.Layout(
             border="1px solid #ccc",
@@ -301,84 +300,147 @@ def user_study_widget(lfd):
         ),
     )
 
+    def update_task_status():
+        """
+        Called whenever person/modality/task changes, or after recording/training.
+        - Updates 'file exists' label.
+        - Enables / disables Play button depending on file existence.
+        - Updates 'available files' list matching the base task name.
+        """
+        full_name = build_task_name()
 
-    def on_load_name_clicked(_):
-        task_name = build_task_name(include_modality=True)   # e.g. p1k_peg_pick
-        playtask_text.value = task_name
+        # Get list of all tasks from storage
+        all_tasks = list_available_tasks()
 
-    def on_play_name_clicked(_):
-        
-        task_name = playtask_text.value
-        state["last_final_task"] = task_name
-        
-        log_out = new_run_log(f"Play {task_name}", _run_counter, log_accordion)
-        with log_out:
-            log_out.clear_output()
-            print(f"[PLAY] Playing: {task_name}")
-            lfd.play_skill(task_name, None, localize_box=False)
+        # File exists if storage knows it OR we just recorded it as last_final_task
+        exists = (full_name in all_tasks)
 
+        # 1) 'File exists' indicator
+        if exists:
+            file_status_label.value = (
+                f"<span style='color:green;'>"
+                f"File exists for <b>{full_name}</b>"
+                f"</span>"
+            )
+            btn_final_record.disabled = True
+            # Enable Play and set proper label
+            btn_play_final.disabled = False
+            # btn_play_final.description = f"▶ Play {full_name}"
+            btn_taskgraph_final.disabled = False
+            # btn_taskgraph_final.description = f"Task graph of {full_name}"
 
-    def on_retrain_name_clicked(_):
-        
-        task_name = playtask_text.value
-        state["last_final_task"] = task_name
-        
-        log_out = new_run_log(f"Retrain {task_name}", _run_counter, log_accordion)
-        with log_out:
-            log_out.clear_output()
-            print(f"[Retraining]: {task_name}")
+        else:
+            file_status_label.value = (
+                f"<span style='color:red;'>"
+                f"No file for <b>{full_name}</b>"
+                f"</span>"
+            )
+            btn_final_record.disabled = False
+            btn_play_final.disabled = True
+            # btn_play_final.description = "▶ Play"
+            btn_taskgraph_final.disabled = True
+            # btn_taskgraph_final.description = f"Task graph"
+
+            
+        # 3) list all available files that match the base name (prefix match)
+        matching = [t for t in all_tasks if (t.startswith(full_name) and "_trial_" not in t)]
+        if matching:
+            matching_sorted = sorted(matching)
+            items = "<br>".join(matching_sorted)
+            matching_files_label.value = (
+                f"<b>Available files matching prefix {full_name}</b><br>{items}"
+            )
+        else:
+            matching_files_label.value = (
+                f"<b>No files found matching prefix {full_name}</b>"
+            )
+
+    # ------------------------------------------------
+    # Button callbacks
+    # ------------------------------------------------
+    @single_run
+    def on_record_clicked(_):
+        task_name = build_task_name()
+
+        run_out = new_run_log(f"Record {task_name}", _run_counter, log_accordion)
+        with run_out:
+            run_out.clear_output()
+            print(f"[teaching] Recording task: {task_name}")
+            human_record(task_name)
+            print(f"[teaching] Finished")
+
+        # Newly recorded file now exists; refresh status labels & Play button
+        update_task_status()
+
+    @single_run
+    def on_play_clicked(_):
+        task_name = build_task_name()
+        if task_name is None:
+            run_out = new_run_log("Play (no task)", _run_counter, log_accordion)
+            with run_out:
+                run_out.clear_output()
+                print("[play] nothing to play.")
+            return
+
+        run_log = new_run_log(f"Play {task_name}", _run_counter, log_accordion)
+        with run_log:
+            print(f"[training] Started ({task_name})")
             lfd.retrain(task_name)
+            print(f"[training] Finished")
+            print(f"[play] Playing: {task_name}")
+            # lfd.ui_progress_callback = ui_progress_callback
+            # lfd.execution_plot_out = execution_plot_out
+            lfd.play_skill(task_name, None, localize_box=False)
+            print(f"[play] Finished")
+            
+    @single_run
+    def on_taskgraph_clicked(_):
+        task_name = build_task_name()
+        if task_name is None:
+            run_out = new_run_log("Task graph (no task)", _run_counter, log_accordion)
+            with run_out:
+                run_out.clear_output()
+                print("[task graph] nothing to plot.")
+            return
 
+        run_log = new_run_log(f"Task graph {task_name}", _run_counter, log_accordion)
+        with run_log:
+            loader = TrajectoryDataset(trajectory_data.package_path)
+            loader.plot_task_graph(task_name)
+            print(f"[task graph] Finished")
 
+    btn_final_record.on_click(on_record_clicked)
+    btn_play_final.on_click(on_play_clicked)
+    btn_taskgraph_final.on_click(on_taskgraph_clicked)
 
-    btn_load_name = widgets.Button(
-        description="Play custom",
-        tooltip="Run task based on name on the left",
-        layout=widgets.Layout(width="250px"),
+    def on_config_changed(change):
+        update_task_status()
+
+    person_text.observe(on_config_changed, names="value")
+    modality_toggle.observe(on_config_changed, names="value")
+    task_toggle.observe(on_config_changed, names="value")
+
+    # Initial status
+    update_task_status()
+
+    execution_plot_out = widgets.Output(
+    layout=widgets.Layout(
+        border="1px solid #ccc",
+        padding="4px",
+        max_height="400px",
+        overflow="auto",
     )
-    btn_load_name.on_click(on_load_name_clicked)
-
-    playtask_text = widgets.Text(
-        value="p0k_peg_pick",
-        description="Task name:",
-        placeholder="e.g. p0k_peg_pick",
-        style={"description_width": "80px"},
-        layout=widgets.Layout(width="200px"),
-    )
-    
-
-    btn_play_task = widgets.Button(
-        description="Play custom",
-        tooltip="Run task based on name on the left",
-        layout=widgets.Layout(width="250px"),
-    )
-    btn_retrain_task = widgets.Button(
-        description="Retrain custom",
-        tooltip="Retrain task based on name on the left",
-        layout=widgets.Layout(width="250px"),
     )
 
-    btn_play_task.on_click(on_play_name_clicked)
-    btn_retrain_task.on_click(on_retrain_name_clicked)
 
-    play_box = widgets.VBox(
-        [
-            widgets.HTML(""),
-            widgets.HBox([btn_load_name, playtask_text, btn_retrain_task, btn_play_task]),
-        ],
-        layout=widgets.Layout(
-            border="1px solid #ccc",
-            padding="8px",
-            margin="4px",
-        ),
-    )
-
+    # Dashboard layout
     dashboard = widgets.VBox(
         [
             widgets.HTML("<h3>Human Teaching Dashboard</h3>"),
             config_box,
             teaching_box,
-            play_box, 
+            # widgets.HTML("<b>Execution plot (live)</b>"),
+            # execution_plot_out,
             widgets.HTML("<b>Log</b>"),
             log_out,
             log_accordion,
@@ -386,3 +448,64 @@ def user_study_widget(lfd):
     )
 
     return dashboard  # last expression: renders inline
+
+# import matplotlib.pyplot as plt
+# from IPython.display import clear_output
+
+# # Keep a short rolling history (to avoid plotting tens of thousands of points)
+# from collections import deque
+# history_len = 300
+# exec_history = {
+#     "step": deque(maxlen=history_len),
+#     "curr_branch": deque(maxlen=history_len),
+#     "suggested_branch": deque(maxlen=history_len),
+#     "anomaly": deque(maxlen=history_len),
+# }
+
+# def branch_to_int(branch_name: str) -> int:
+#     # Simple encoding so you can plot categorical branches as lines.
+#     # Adjust mapping to your real branch names.
+#     # Example: {'nominal':0, 'fallback':1, 'anomaly':2, ...}
+#     mapping = getattr(branch_to_int, "_mapping", {})
+#     if branch_name not in mapping:
+#         mapping[branch_name] = len(mapping)
+#         branch_to_int._mapping = mapping
+#     return mapping[branch_name]
+
+# def ui_progress_callback(lfd, step, fps, curr_branch, target_state, suggested_branch, anomaly_flag):
+#     """
+#     Called from inside lfd.play_skill() loop.
+#     Updates a small execution plot in execution_plot_out.
+#     """
+#     exec_history["step"].append(step)
+#     exec_history["curr_branch"].append(branch_to_int(curr_branch))
+#     exec_history["suggested_branch"].append(branch_to_int(suggested_branch))
+#     exec_history["anomaly"].append(1 if anomaly_flag else 0)
+
+#     # For speed, you may want to only update every N steps:
+#     if step % 10 != 0:
+#         return
+
+#     with lfd.execution_plot_out:
+#         clear_output(wait=True)
+#         fig, ax1 = plt.subplots()
+
+#         steps = list(exec_history["step"])
+#         curr_b = list(exec_history["curr_branch"])
+#         sugg_b = list(exec_history["suggested_branch"])
+#         anomaly = list(exec_history["anomaly"])
+
+#         ax1.plot(steps, curr_b, label="current branch")
+#         ax1.plot(steps, sugg_b, linestyle="--", label="suggested branch")
+#         ax1.set_xlabel("step")
+#         ax1.set_ylabel("branch id")
+#         ax1.legend(loc="upper left")
+
+#         # Optional: show anomaly as vertical markers
+#         for s, a in zip(steps, anomaly):
+#             if a:
+#                 ax1.axvline(s, linestyle=":", alpha=0.5)
+
+#         plt.tight_layout()
+#         plt.show()
+#         plt.close(fig)

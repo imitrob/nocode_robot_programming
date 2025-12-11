@@ -19,6 +19,9 @@ class StateDeciderManual(StateDeciderBase):
         for label in y_cls:
             if Filename(label).offset != 0:
                 self.ds.append(Filename(label).offset)
+        
+        print("Manual Training initialized!")
+        print("stopping on", self.ds)
 
         self.target_label = Filename(y_cls[0]).task # any y_cls class has root of the name as task
         self.y_cls = y_cls

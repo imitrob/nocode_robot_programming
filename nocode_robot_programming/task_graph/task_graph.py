@@ -7,9 +7,6 @@ from nocode_robot_programming.task_graph.task_graph_dashplot import visualize_ta
 
 class TaskGraph:
 
-    def get_length(self, skill_name: str):
-        return self[skill_name]['length']
-
     def plot_task_graph(self, skill_name: str, branch_window: int = 3):
         # names: "user_0_kine_peg_pick", "user_0_kine_peg_pick_0", "user_0_kine_peg_pick_1", "user_0_kine_peg_pick_2", ...
         filenames = self.names

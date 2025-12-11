@@ -43,6 +43,9 @@ def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts:
             y_int_parts.append(y_int_sub)
             y_name_parts.extend(y_names_sub)
 
+    if len(X_parts) == 0:
+        return None
+
     X  = torch.cat(X_parts, dim=0)             # (total_samples, H, W)
     Xt = torch.cat(Xt_parts, dim=0)            # (total_samples,)
     y_int = torch.cat(y_int_parts, dim=0)      # (total_samples,)
@@ -54,6 +57,11 @@ def load_dataset(loader, task_name: str, e: int = 10) -> tuple[list[ImageDataset
     """Returns two datasets: First selects images at each DS, Second contains all images
     """
 
+    # cluster decision states
+    # [{'start': 8, 'end': 18, 'relevant_parts': ['ttst_kin_test', 'ttst_kin_test_branch_from_0_at_8']}, # DS1
+    #   ... # DS2
+    #   ... # DS3
+    # ]
     decision_states = cluster(loader.tasks[task_name], e)
     print("Decision states: ", decision_states)
 
@@ -66,10 +74,17 @@ def load_dataset(loader, task_name: str, e: int = 10) -> tuple[list[ImageDataset
         for name in index['names']:
             if Filename(name).before_trial_suffix in ds['relevant_parts']:
                 file_names.append(name) 
-        datasets.append(get_auto_dataset_view(loader, relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=file_names))
+        d = get_auto_dataset_view(loader, relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=file_names)
+        if d is not None:
+            datasets.append(d)
 
     file_names = loader.tasks[task_name]['names']
-    all_images_dataset = get_auto_dataset_view(loader, relevant_parts=file_names, at=slice(None, None), file_names=file_names)
+    relevant_parts = []
+    for name in file_names:
+        if Filename(name).is_demo:
+            relevant_parts.append(name)
+
+    all_images_dataset = get_auto_dataset_view(loader, relevant_parts=relevant_parts, at=slice(None, None), file_names=file_names)
 
     return datasets, all_images_dataset
 

@@ -5,6 +5,7 @@ import numpy as np
 import trajectory_data
 import torch, torchvision
 from matplotlib.colors import ListedColormap, BoundaryNorm
+import cv2
 
 def list_other_ipykernels():
     me = os.getpid()
@@ -107,6 +108,28 @@ def add_tag(filename: str, tag: str):
     np.savez(f"{trajectory_data.package_path}/trajectories/{filename}.npz", **arrays)
     data.close()
 
+def set_session(name):
+    ''' Save to subdirectory '''
+    global session
+    session = name
+    # print(f"[{__name__}] session is set ", name)
+
+def get_session():
+    global session
+    try:
+        session
+    except NameError:
+        session = ""
+    # print(f"[{__name__}] session is read ", session)
+    return session
+
+
+def number_of_saved(video: str, cat: str):
+    n = 0
+    while os.path.isfile(f'{trajectory_data.package_path}/trajectories/{get_session()}/{video}_{cat}_{n}.npz'):
+        n += 1
+    return n
+
 class Filename:
     """ Filename parser.
     Supported patterns (with or without '.npz'):
@@ -124,8 +147,22 @@ class Filename:
     branch_suffix = "branch_at"        # old format
     branch_from_suffix = "branch_from" # new format
     trial_suffix = "trial"
+    def __init__(self, filename: str, offset: int | None = None, parent_offset: int = 0, trial: int = -1, init_exec_trial: bool = False):
+        if offset is None:
+            self.from_filename(filename)
+        else:
+            self.from_params(filename, offset, parent_offset, trial)
+        
+        if init_exec_trial:
+            self.add_execution_trial()
 
-    def __init__(self, filename: str):
+    def from_params(self, task: str, offset: int, parent_offset: int, trial: int):
+        self.task = task
+        self.offset = offset
+        self.parent_offset = parent_offset
+        self.trial = trial
+
+    def from_filename(self, filename: str):
         # Normalize extension
         if filename.endswith(".npz"):
             self.filename = filename
@@ -170,11 +207,28 @@ class Filename:
             # No branch info at all: root demonstration
             self.task = self.before_trial_suffix
 
+    def add_execution_trial(self):
+        assert self.is_demo, "Adding execution trial, but the filename is execution trial already!"
+        self.trial = number_of_saved(self.to_str(), "trial") # trials 0, ..., n-1 exists
+
     @property
     def is_demo(self) -> bool:
         """True if this is a demonstration (no trial)."""
         return self.trial == -1
 
+    def to_str(self):
+        """ Constructs filename without .npz extension
+        """
+        if self.offset == 0:
+            branchfromat = f""
+        else:
+            branchfromat = f"_branch_from_{self.parent_offset}_at_{self.offset}"
+
+        if self.trial == -1:
+            return f"{self.task}{branchfromat}"
+        elif self.trial >= 0:
+            return f"{self.task}{branchfromat}_trial_{self.trial}"
+        else: raise Exception("self.trial not match")
 
 def _ellipsize(items: List[str], max_chars: int = 60, sep: str = ", ") -> str:
     """Join unique items and ellipsize to keep rows compact."""
@@ -241,3 +295,21 @@ def saved_img_processing_old(img):
     # img_tensor = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
     # return resize_transform(img_tensor) / 255.0
 
+def visualize_video_frame_with_text(image, text: str = "", color: tuple[int, int, int] = (0,0,255), press_for_next_frame: bool = False):
+    image = image.squeeze().astype(np.uint8)
+    image = cv2.resize(image, (64, 64), interpolation=cv2.INTER_AREA)
+    
+    cv2.putText(image, text, (0, 12), cv2.FONT_HERSHEY_SIMPLEX,
+        0.5, color, 1, 2)
+    
+    cv2.namedWindow("Image", cv2.WINDOW_NORMAL)
+    cv2.moveWindow("Image",3700,0)
+    cv2.resizeWindow("Image", 640, 640)
+    zoomed_image = cv2.resize(image, (640, 640), interpolation=cv2.INTER_NEAREST)
+    cv2.imshow("Image", zoomed_image)
+
+    if press_for_next_frame:
+        cv2.waitKey(0)  # Wait for a key press to close the window
+    if cv2.waitKey(25) & 0xFF == 27:  # Press 'Esc' to exit
+        return True
+    return False

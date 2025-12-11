@@ -62,6 +62,9 @@ class JoystickConnector():
 
         self.joy_thread_running = False
 
+        # tuning - moving faster when holding up/down buttons
+        self.z_axis_aggr = 0
+
     def _joy_open(self) -> Optional[InputDevice]:
         try:
             return InputDevice(self.joy_path)
@@ -171,10 +174,10 @@ class JoystickConnector():
     def joy_step(self):
         s = self.joy_state
         
-        self.feedback[0] = -round(s.axes.get("LX", 0.0),1) *  0.02  # left stick X
-        self.feedback[1] = -round(s.axes.get("LY", 0.0),1) *  0.02  # left stick Y
-        self.feedback[4] = round(s.axes.get("RX", 0.0),1) *  0.2   # right stick X
-        self.feedback[3] = round(s.axes.get("RY", 0.0),1) *  0.1   # right stick Y
+        feedback0 = -round(s.axes.get("LX", 0.0),1) *  0.02  # left stick X
+        feedback1 = -round(s.axes.get("LY", 0.0),1) *  0.02  # left stick Y
+        feedback4 = round(s.axes.get("RX", 0.0),1) *  0.1   # right stick X
+        feedback3 = round(s.axes.get("RY", 0.0),1) *  0.05   # right stick Y
 
         if s.buttons.get("A", 0) > 0:
             self.feedback_gripper = "grasp"
@@ -190,14 +193,19 @@ class JoystickConnector():
             self.paused_before = False
 
         if s.buttons.get("Y", 0) > 0:
-            self.end = True
+            self.end += 1
 
         if s.buttons.get("LB", 0) > 0:
-            self.feedback[2] = 0.02
+            self.z_axis_aggr += 1
+            feedback2 = 0.003 + self.z_axis_aggr * 0.001
         elif s.buttons.get("RB", 0) > 0:
-            self.feedback[2] = -0.02
+            self.z_axis_aggr -= 1
+            feedback2 = -0.003 + self.z_axis_aggr * 0.001
         else:
-            self.feedback[2] = 0.
+            feedback2 = 0.
+            self.z_axis_aggr = 0
+
+        self.feedback = (feedback0, feedback1, feedback2, feedback3, feedback4)
 
         if sum(np.absolute(self.feedback)) > 0:
             self.modality_in_control = 'joystick'

@@ -6,8 +6,12 @@ class StateDeciderModelManager():
         self.models = []
 
     def train(self, datasets, all_dataset):
+        # TODO: Work here, choose how we delegate datasets to models
+        # anomaly_dataset is all_dataset
+
         self.models = []
-        for single_DS_dataset in [*datasets, all_dataset]:
+        # This is fine for MANUAL
+        for single_DS_dataset in [all_dataset]:
             model = self.modelfactory()
             model.train(X=single_DS_dataset.X, y=single_DS_dataset.y_int, y_cls=single_DS_dataset.y_cls)
             self.models.append([
@@ -22,7 +26,7 @@ class StateDeciderModelManager():
         predictions = []
         for model, min, max in self.models:
             if min <= timestep <= max: # valid model for this timestep
-                print(f"Selected model {model} because: {min} <= {timestep} <= {max}")
+                # print(f"Selected model {model} because: {min} <= {timestep} <= {max}")
                 predictions.append(model.predict(image, timestep))
         
         if len(predictions) == 0:

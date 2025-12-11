@@ -46,7 +46,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
                     'img_feedback_flag','spiral_flag','risk_flag',
                     'safe_flag','novel_risk_flag','novel_safe_flag','tag']
 
-    def __init__(self, package_path, keys=None):
+    def __init__(self, package_path, keys=None, print_index: bool = False):
         self.dir = os.path.join(package_path, "trajectories")
         self.files = sorted(glob.glob(os.path.join(self.dir, "*.npz")))
         if not self.files:
@@ -54,7 +54,8 @@ class TrajectoryDataset(TaskGraph, Dataset):
         self.keys = keys or self.default_keys
 
         self._task_index = self._build_task_index()
-        print("Found tasks:\n" + self.__str__())
+        if print_index:
+            print("Found tasks:\n" + self.__str__())
 
     def _build_task_index(self) -> Dict[str, Dict[str, List]]:
         """
@@ -76,15 +77,36 @@ class TrajectoryDataset(TaskGraph, Dataset):
             entry["names"].append(f_.name)
             entry["offsets"].append(int(f_.offset))
             entry["parent_offsets"].append(f_.parent_offset)
-            entry["lengths"].append(self[f_.name]["length"])
+            l, tag = self.get_length_and_tag(f_.name)
+            entry["lengths"].append(l)
             entry["trials"].append(int(f_.trial))
             entry["files"].append(f)
-            if 'tag' in self[f].keys():
-                entry["tags"].append(self[f]['tag'])
-            else:
-                entry["tags"].append("")
+            entry["tags"].append(tag)
         return dict(index)
 
+    def get_length(self, idx: str):
+        if isinstance(idx, str) and idx in self.names:
+            idx = self.names.index(idx) # idx string -> idx id (int)
+        
+        if isinstance(idx, slice):
+            return self.__getitems__(idx)
+        
+        data = np.load(self.files[idx], allow_pickle=False, mmap_mode='r')
+        return len(data['grip'][0])
+
+    def get_length_and_tag(self, idx: str):
+        if isinstance(idx, str) and idx in self.names:
+            idx = self.names.index(idx) # idx string -> idx id (int)
+        
+        if isinstance(idx, slice):
+            return self.__getitems__(idx)
+        
+        data = np.load(self.files[idx], allow_pickle=False, mmap_mode='r')
+
+        if 'tag' in data.keys():
+            return len(data['grip'][0]), data['tag']
+        else:
+            return len(data['grip'][0]), ""
 
     def __str__(self):
         return str(self.tasks)

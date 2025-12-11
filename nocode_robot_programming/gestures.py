@@ -162,7 +162,7 @@ class TeleoperationByDrawing(HandListener):
             pass
 
     def teleop_step(self):
-        if self.is_hand_visible(self.teleop_hand):
+        if self.is_hand_visible(self.teleop_hand) and not self.is_hand_visible(self.teleop_aux_hand):
             grab_strength = getattr(self.hand_frames[-1], self.teleop_hand).grab_strength
             
             trigger = self.is_gesture_activated(self.teleop_hand, self.link_gesture)
@@ -171,7 +171,7 @@ class TeleoperationByDrawing(HandListener):
         else:
             self.is_drawing = False
         
-        if self.is_hand_visible(self.teleop_aux_hand):
+        if self.is_hand_visible(self.teleop_aux_hand) and self.is_hand_visible(self.teleop_hand):
             grab_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).grab_strength
             pinch_strength = getattr(self.hand_frames[-1], self.teleop_aux_hand).pinch_strength
             
@@ -186,7 +186,7 @@ class TeleoperationByDrawing(HandListener):
                 
                 if grab_strength == 0.0 and this_frame_stop and prev_frame_stop and yaw < 1.0:
                     self.pause = True # stops the execution
-                    self.end = True
+                    self.end += 1
 
             if grab_strength > 0.8 or pinch_strength > 0.8:
                 if not self.gripper_state.is_grasped:
@@ -220,42 +220,46 @@ class TeleoperationByDrawing(HandListener):
 
             #goal_pose = goal_pose + (mouse3d - self.anchor)
             goal_pose = deepcopy(self.scene_anchor)
-            goal_pose[0] += (mouse3d[0] - self.anchor[0])
-            goal_pose[1] += (mouse3d[1] - self.anchor[1])
-            goal_pose[2] += (mouse3d[2] - self.anchor[2])
+            goal_pose[0] += np.clip((mouse3d[0] - self.anchor[0]), -0.1, 0.1) 
+            goal_pose[1] += np.clip((mouse3d[1] - self.anchor[1]), -0.1, 0.1)
+            goal_pose[2] += np.clip((mouse3d[2] - self.anchor[2]), -0.1, 0.1)
 
             if self.teleop_rotate_eef:
                 self.eef_rot = deepcopy(self.eef_rot_scene)
                 self.eef_rot += (angle - self.live_mode_drawing_eef_rot_anchor)
 
-            # Save cage
-            # goal_pose = np.clip(
-            #     goal_pose,
-            #     #        [x  , y   , z   , no limits on rotation]
-            #     np.array([0.2, -0.4, 0.05, -10, -10, -10, -10]),
-            #     np.array([0.6,  0.4, 0.5,   10,  10,  10,  10])
-            # )
+
 
             current_position = self.panda.get_position() 
-            factor = 0.5
-            self.feedback[0] = (goal_pose[0] - current_position[0]) * factor
-            self.feedback[1] = (goal_pose[1] - current_position[1]) * factor
-            self.feedback[2] = (goal_pose[2] - current_position[2]) * factor
+            self.feedback = (np.clip((goal_pose[0] - current_position[0]) , -0.02, 0.02),
+                           np.clip((goal_pose[1] - current_position[1]) , -0.02, 0.02),
+                           np.clip((goal_pose[2] - current_position[2]) , -0.02, 0.02), 
+                           0.0, 
+                           0.0)
+            
         else:
             pitch = self.hand_frames[-1].l.palm_normal.pitch()
             yaw = self.hand_frames[-1].l.direction.yaw()
             # print(f"{'left' if pitch < 1.0 else ''}{'right' if pitch > 2.0 else ''} {'up' if yaw < 1.0 else ''}{'down' if yaw > 2.0 else ''}")
             if self.hand_frames[-1].leapgestures.circle.present and self.hand_frames[-1].leapgestures.circle.clockwise: # yaw < 1.0:
-                self.feedback[3] = -0.1
+                feedback3 = -0.05
+                feedback4 = 0.0
             elif self.hand_frames[-1].leapgestures.circle.present and not self.hand_frames[-1].leapgestures.circle.clockwise: #yaw > 2.0:
-                self.feedback[3] = 0.1
+                feedback3 = 0.05
+                feedback4 = 0.0
             elif pitch < 1.0:
-                self.feedback[4] = -0.2
+                feedback3 = 0.0
+                feedback4 = -0.05
             elif pitch > 2.0:
-                self.feedback[4] = 0.2
+                feedback3 = 0.0
+                feedback4 = 0.05
             else:
-                self.feedback[3] = 0.0
-                self.feedback[4] = 0.0
+                feedback3 = 0.0
+                feedback4 = 0.0
+
+            self.feedback = (0.0, 0.0, 0.0,
+                             feedback3, feedback4,
+                             )
 
             self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]  #self.feedback
             self.is_drawing = False

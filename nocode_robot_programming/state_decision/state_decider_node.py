@@ -9,13 +9,12 @@ from cv_bridge import CvBridgeError, CvBridge
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from lfd_msgs.srv import StringService
 
-from video_embedding.utils import visualize_video_frame_with_text
 from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import load_dataset
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
 import trajectory_data
 from skills_manager.ros_utils import SpinningRosNode
 from nocode_robot_programming.state_decision_dataset_prepare.decision_state_clustering import cluster
-from nocode_robot_programming.state_decision.utils import Filename
+from nocode_robot_programming.state_decision.utils import Filename, visualize_video_frame_with_text
 from nocode_robot_programming.state_decision.state_decider_model_manager import StateDeciderModelManager
 
 WARNING_WHEN_IMAGE_OLDER_THAN = 0.2 # sec
@@ -37,9 +36,6 @@ class StateDeciderNode(SpinningRosNode):
         elif method == "MANUAL":
             from nocode_robot_programming.state_decision.manual_state_decider import StateDeciderManual
             model_factory = StateDeciderManual
-        elif method == "BASE":
-            from nocode_robot_programming.state_decision.state_decider import StateDeciderBase
-            model_factory = StateDeciderBase
         else: raise Exception(f"Method '{method}' is not implemented!")
 
         self.model_manager = StateDeciderModelManager(model_factory)
@@ -71,6 +67,8 @@ class StateDeciderNode(SpinningRosNode):
     def train(self):
         assert self.task_name is not None
 
+        self.loader = TrajectoryDataset(trajectory_data.package_path)
+
         datasets, all_dataset = load_dataset(self.loader, self.task_name)
 
         self.model_manager.train(datasets, all_dataset)
@@ -99,7 +97,7 @@ class StateDeciderNode(SpinningRosNode):
             print("Not receiving image from '/modified_img' topic", flush=True)
             return "no img"
         if (time.time() - self.curr_image_timestamp) > WARNING_WHEN_IMAGE_OLDER_THAN:
-            print(f"Image too old: {round(time.time() - self.curr_image_timestamp, 2)} sec", flush=True)
+            print(f"No task execution running, received stamped-image too old: {round(time.time() - self.curr_image_timestamp, 2)} sec", flush=True)
 
         target_name = self.model_manager.predict(self.curr_image, self.timestep)
         
@@ -107,13 +105,12 @@ class StateDeciderNode(SpinningRosNode):
             options = self.get_options(self.timestep)
             target_name += "|" + "|".join(options)
             
-        print(f"{target_name=}")
         self.state_pub.publish(String(data=target_name))
         return target_name
 
 if __name__ == "__main__": 
     parser = argparse.ArgumentParser(description="State Decider Node")
-    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/BASE/MANUAL', choices=["SIFT", "DINO", "AEGP", "BASE", "MANUAL"], default="BASE")
+    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/MANUAL', choices=["SIFT", "DINO", "AEGP", "MANUAL"], default="MANUAL")
     args = parser.parse_args()
 
     rclpy.init()
@@ -135,6 +132,7 @@ if __name__ == "__main__":
         else:
             time.sleep(0.5)
 
-        print(f"{round(1.0 / (time.perf_counter()-t0))} samples per second")
+
+        print(f"Target: {target_name}, {round(1.0 / (time.perf_counter()-t0))} smp/s")
 
     rclpy.spin(node)
