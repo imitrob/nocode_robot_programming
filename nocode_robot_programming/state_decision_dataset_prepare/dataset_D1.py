@@ -2,6 +2,7 @@ from nocode_robot_programming.state_decision.utils import Filename
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset, ImageDatasetView, saved_img_processing
 import torch
 from copy import deepcopy
+from typing import List, Tuple
 
 def get_dataset_view(datafileloader, file_names: list[str], tags: list[str] = [], at: slice = slice(35,85), not_found_index_is_anomaly: bool = True) -> ImageDatasetView:
     """ Fileloader used to create dataset
@@ -64,7 +65,8 @@ def d1_peg_pick(
         window: int = 10, 
         branch_offset: int = 49, 
         tags = ['d1_peg_pick', 'd1_peg_pick_branch_at_49'] # label: 0, 1  
-    ):
+    ) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
+    """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. """
     datasets = []
     at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
 
@@ -111,7 +113,7 @@ def d2_peg_pick(
         window: int = 10, 
         branch_offset: int = 76, 
         tags = ['d2_peg_pick', 'd2_peg_pick_branch_at_76'] # label: 0, 1  
-    ):
+    ) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     datasets = []
     at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
 
@@ -150,7 +152,7 @@ def d3_peg_pick(
         window: int = 10, 
         branch_offset: int = 189, 
         tags = ['d3_peg_pick', 'd3_peg_pick_branch_at_189'] # label: 0, 1  
-    ):
+    ) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     datasets = []
     at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
 
@@ -194,7 +196,7 @@ def d1_probe(
         window: int = 10, 
         branch_offset: int = 51, 
         tags = ['d1_probe', 'd1_probe_branch_at_51'] # label: 0, 1  
-    ):
+    ) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     datasets = []
     at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
 
@@ -237,7 +239,7 @@ def d2_probe(
         window: int = 10, 
         branch_offset: int = 103, 
         tags = ['d2_probe', 'd2_probe_branch_at_103'] # label: 0, 1  
-    ):
+    ) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     datasets = []
     at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
 
@@ -282,7 +284,7 @@ def d3_probe(
         window: int = 10, 
         branch_offset: int = 118, 
         tags = ['d3_probe', 'd3_probe_branch_at_118'] # label: 0, 1  
-    ):
+    ) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     datasets = []
     at = slice(branch_offset-window/2.0, branch_offset+window/2.0)
 

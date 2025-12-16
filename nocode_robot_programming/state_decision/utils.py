@@ -130,6 +130,9 @@ def number_of_saved(video: str, cat: str):
         n += 1
     return n
 
+def exists(file: str):
+    return os.path.isfile(f'{trajectory_data.package_path}/trajectories/{get_session()}/{file}.npz')
+
 class Filename:
     """ Filename parser.
     Supported patterns (with or without '.npz'):
@@ -173,7 +176,7 @@ class Filename:
 
         # Parse trial suffix
         trial_split = self.name.split(f"_{self.trial_suffix}_")
-        self.before_trial_suffix = trial_split[0]
+        self.part_name = trial_split[0]
 
         if len(trial_split) > 1:
             # everything after "_trial_" is the integer trial id
@@ -186,7 +189,7 @@ class Filename:
         self.parent_offset = 0
 
         # New format: {task}_branch_from_{parent}_at_{offset}
-        parent_split = self.before_trial_suffix.split(f"_{self.branch_from_suffix}_")
+        parent_split = self.part_name.split(f"_{self.branch_from_suffix}_")
         if len(parent_split) > 1:
             # parent_split[0] = task, parent_split[1] = '{parent}_at_{offset}'
             parent_and_at = parent_split[1].split("_at_")
@@ -197,7 +200,7 @@ class Filename:
                 return  # we're done
 
         # Old format: {task}_branch_at_{offset}
-        branch_split = self.before_trial_suffix.split(f"_{self.branch_suffix}_")
+        branch_split = self.part_name.split(f"_{self.branch_suffix}_")
         if len(branch_split) > 1:
             # branch from root demo (offset 0)
             self.task = branch_split[0]
@@ -205,11 +208,19 @@ class Filename:
             self.parent_offset = 0
         else:
             # No branch info at all: root demonstration
-            self.task = self.before_trial_suffix
+            self.task = self.part_name
 
     def add_execution_trial(self):
         assert self.is_demo, "Adding execution trial, but the filename is execution trial already!"
         self.trial = number_of_saved(self.to_str(), "trial") # trials 0, ..., n-1 exists
+
+    def find_unique(self):
+        """ Iterate offset until file not exists """
+        while self.exists():
+            self.offset += 1
+
+    def exists(self):
+        return exists(self.to_str())
 
     @property
     def is_demo(self) -> bool:
@@ -229,6 +240,25 @@ class Filename:
         elif self.trial >= 0:
             return f"{self.task}{branchfromat}_trial_{self.trial}"
         else: raise Exception("self.trial not match")
+
+    @property
+    def person(self) -> str:
+        return self.task.split("_")[0]
+    
+    @property
+    def modality(self) -> str:
+        if len(self.task.split("_")) < 2:
+            return "none"
+        else:
+            return self.task.split("_")[1]
+    
+    @property
+    def task_userstudy(self) -> str:
+        if len(self.task.split("_")) < 3:
+            return self.task
+        else:
+            return " ".join(self.task.split("_")[2:])
+    
 
 def _ellipsize(items: List[str], max_chars: int = 60, sep: str = ", ") -> str:
     """Join unique items and ellipsize to keep rows compact."""

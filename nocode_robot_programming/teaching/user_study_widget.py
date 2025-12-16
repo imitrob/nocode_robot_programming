@@ -4,7 +4,6 @@ import asyncio
 
 import tkinter as tk
 import time
-from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import load_dataset
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
 import trajectory_data
 

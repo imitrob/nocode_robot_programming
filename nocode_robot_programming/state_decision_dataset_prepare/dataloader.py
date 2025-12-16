@@ -362,7 +362,7 @@ class ImageDatasetView(Dataset):
         captions = []
         for i,name in zip(self.y_int, self.y_names):
             captions.append(f"y={i},{name}")
-        display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=captions))
+        display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=captions, caption_fontsize=10))
 
     def showcase_aligned(self, fps: int = 20, scale: int = 5):
         captions = []

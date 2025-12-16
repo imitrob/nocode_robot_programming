@@ -5,6 +5,7 @@ import trajectory_data
 from nocode_robot_programming.state_decision.utils import Filename
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset, ImageDatasetView, saved_img_processing
 from nocode_robot_programming.state_decision_dataset_prepare.decision_state_clustering import cluster
+from typing import List, Tuple
 
 def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts: list[str], at: slice = slice(None,None)) -> ImageDatasetView:
     """ NO TAGS!    
@@ -26,7 +27,7 @@ def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts:
             imgs = imgs.unsqueeze(0)
         nsamples = imgs.shape[0]
         
-        i = relevant_parts.index(f.before_trial_suffix)
+        i = relevant_parts.index(f.part_name)
 
         xt = torch.arange(f.offset, f.offset + nsamples)  # shape (nsamples,)
         
@@ -36,7 +37,7 @@ def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts:
             xt_sub   = xt[mask]
 
             y_int_sub   = torch.full((imgs_sub.shape[0],), i, dtype=torch.int)
-            y_names_sub = [f.before_trial_suffix] * imgs_sub.shape[0]
+            y_names_sub = [f.part_name] * imgs_sub.shape[0]
 
             X_parts.append(imgs_sub)
             Xt_parts.append(xt_sub)
@@ -53,8 +54,55 @@ def get_auto_dataset_view(datafileloader, file_names: list[str], relevant_parts:
 
     return ImageDatasetView(X=X, Xt=Xt, y_int=y_int, y_names=y_names, y_cls=relevant_parts)
 
-def load_dataset(loader, task_name: str, e: int = 10) -> tuple[list[ImageDatasetView], ImageDatasetView]:
-    """Returns two datasets: First selects images at each DS, Second contains all images
+def load_eval(loader, task_name: str, e: int = 10) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
+    """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. """
+    decision_states = cluster(loader.tasks[task_name], e)
+    print("Decision states: ", decision_states)
+
+    index = loader.tasks[task_name]
+
+    datasets = []
+    for ds in decision_states:
+
+        file_names = []
+        for name in index['names']:
+            f = Filename(name)
+            if f.part_name in ds['relevant_parts']:
+                file_names.append(name) 
+        print("filenames: ", file_names)
+
+        # train/test split based on if it is a demonstration or not
+        train_file_names, test_file_names = [], []
+        for name in file_names:
+            f = Filename(name)
+            if f.is_demo or f.trial == 0:
+                train_file_names.append(name)
+            else:
+                test_file_names.append(name)
+
+
+        d_train = get_auto_dataset_view(loader, relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=train_file_names)
+        d_test = get_auto_dataset_view(loader, relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=test_file_names)
+        
+        
+        if d_train is None:
+            continue
+        
+        elif d_test is None:
+            d_test = d_train
+
+        f = Filename(ds['relevant_parts'][0])
+
+        datasets.append((d_train, d_test, f"{f.task_userstudy} {f.modality} {f.person}, window={e}"))
+
+
+    return datasets
+
+
+def load_deploy(loader, task_name: str, e: int = 10) -> tuple[list[ImageDatasetView], ImageDatasetView]:
+    """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. 
+    
+        - Each dataset tuple includes a single DS, exception is the last that contains all images.
     """
 
     # cluster decision states
@@ -72,7 +120,7 @@ def load_dataset(loader, task_name: str, e: int = 10) -> tuple[list[ImageDataset
 
         file_names = []
         for name in index['names']:
-            if Filename(name).before_trial_suffix in ds['relevant_parts']:
+            if Filename(name).part_name in ds['relevant_parts']:
                 file_names.append(name) 
         d = get_auto_dataset_view(loader, relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=file_names)
         if d is not None:
