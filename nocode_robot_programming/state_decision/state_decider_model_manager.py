@@ -37,3 +37,6 @@ class StateDeciderModelManager():
             return predictions[0]
         else:
             return predictions[0]
+
+    def manual_predict(self, node, timestep, task_name, part_name) -> str:
+        return self.models[0][0].manual_predict(node, timestep, task_name, part_name)

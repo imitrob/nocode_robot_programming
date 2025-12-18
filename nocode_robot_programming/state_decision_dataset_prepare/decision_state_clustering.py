@@ -2,10 +2,18 @@
 from typing import Iterable, List, Tuple, Dict
 import math
 
-def cluster(task_index, window_size: int = 10):
+def cluster(task_index: dict[str, str | int], window_size: int = 10):
+    """
+    Parameters:
+        task_index: dict. Stores all parts (demo/exec) for a task (from loader.tasks[task_name])
+            - task_index[part_name]['offset']
+    """
+    # e.g., task_index['offsets'] = [0, 36, 45] - two DS timestamps
+    # we don't want initial demo offset as decision state 
     non_zero_offsets = [item for item in task_index['offsets'] if item != 0]
+    # e.g., non_zero_offsets = [36, 45] - two DS timestamps
     windows = cluster_branching_windows(non_zero_offsets, window_size=window_size)['windows']
-    
+    # e.g., windows = {"windows": bounded = 36-55, "count": len(bounded) = 1, } one clustered DS
     relevant_names = relevant_skillparts(task_index, windows)
 
     decision_states = []
@@ -14,34 +22,34 @@ def cluster(task_index, window_size: int = 10):
 
     return decision_states
 
-def relevant_skillparts(task_index, windows):
+def search_for_parent(task_index, offset: int):
+    name = None
+    for name_, offset_ in zip(task_index['names'], task_index['offsets']):
+        if 'trial' in name_:
+            continue
+        if offset == offset_:
+            if name is not None: raise Exception("Multiple skill parts with similar offset")
+            name = name_
+    assert name is not None, f"Skill part with offset: {offset} is not found,\n{list(zip(task_index['names'], task_index['offsets']))}"
+    return name
 
-    def search_for_parent(offset: int):
-        name = None
-        for name_, offset_ in zip(task_index['names'], task_index['offsets']):
-            if 'trial' in name_:
-                continue
-            if offset == offset_:
-                if name is not None: raise Exception("Multiple skill parts with similar offset")
-                name = name_
-        assert name is not None, f"Skill part with offset: {offset} is not found,\n{list(zip(task_index['names'], task_index['offsets']))}"
-        return name
-
+def relevant_skillparts(task_index: dict[str, str | int], windows: list[tuple[int, int]]):
     skillparts_for_each_windows = []
     for window in windows:
         relevant_parts = []
         for i, skillpart_name in enumerate(task_index['names']):
-            
-            offset = task_index['offsets'][i]
-            parent_offset = task_index['parent_offsets'][i]
+            # just demos, not executions
+            if "trial" in skillpart_name: 
+                continue
+            # if not fits in the DS window, continue
+            if not (window[0] <= task_index['offsets'][i] <= window[1]):
+                continue
 
-            parent_name = search_for_parent(parent_offset)
+            parent_name = search_for_parent(task_index, task_index['parent_offsets'][i])
+            if parent_name not in relevant_parts:
+                relevant_parts.append(parent_name)
 
-            if "trial" not in skillpart_name:
-                if (window[0] <= offset <= window[1]):
-                    if parent_name not in relevant_parts:
-                        relevant_parts.append(parent_name)
-                    relevant_parts.append(skillpart_name)
+            relevant_parts.append(skillpart_name)
         skillparts_for_each_windows.append(relevant_parts)
 
     return skillparts_for_each_windows

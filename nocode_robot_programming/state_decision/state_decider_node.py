@@ -13,7 +13,6 @@ from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
 import trajectory_data
 from skills_manager.ros_utils import SpinningRosNode
-from nocode_robot_programming.state_decision_dataset_prepare.decision_state_clustering import cluster
 from nocode_robot_programming.state_decision.utils import Filename, visualize_video_frame_with_text
 from nocode_robot_programming.state_decision.state_decider_model_manager import StateDeciderModelManager
 
@@ -38,6 +37,7 @@ class StateDeciderNode(SpinningRosNode):
             model_factory = StateDeciderManual
         else: raise Exception(f"Method '{method}' is not implemented!")
 
+        self.method = method
         self.model_manager = StateDeciderModelManager(model_factory)
 
         self.create_service(StringService, "/state_decider_retrain", self.train_call, qos_profile=QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT), callback_group=self.callback_group)
@@ -53,6 +53,7 @@ class StateDeciderNode(SpinningRosNode):
         self.training_finished = threading.Event()
 
         self.task_name: str | None = None
+        self.part_name: str | None = None
 
         self.loader = TrajectoryDataset(trajectory_data.package_path)
 
@@ -77,20 +78,13 @@ class StateDeciderNode(SpinningRosNode):
         try:
             resized_img_gray = self.bridge.imgmsg_to_cv2(msg)
             self.curr_image = resized_img_gray.reshape((1, resized_img_gray.shape[0], resized_img_gray.shape[1]))
-            self.timestep = int(msg.header.frame_id)
+            data = str(msg.header.frame_id).split("|")
+            self.timestep = int(data[0])
+            if str(data[1]) != self.part_name:
+                self.part_name = str(data[1])
             self.curr_image_timestamp = time.time()
         except CvBridgeError as e:
             print(e)
-
-    def get_options(self, timestep: int):
-
-        ds = cluster(self.loader.tasks[self.task_name])
-
-        for ds_ in ds:
-            if ds_['start'] <= self.timestep <= ds_['end']:
-                return ds_['relevant_parts']
-
-        raise Exception(f"timestep {self.timestep} not link to any DS from ({ds})")
 
     def predict(self):
         if self.curr_image is None:
@@ -99,12 +93,10 @@ class StateDeciderNode(SpinningRosNode):
         if (time.time() - self.curr_image_timestamp) > WARNING_WHEN_IMAGE_OLDER_THAN:
             print(f"No task execution running, received stamped-image too old: {round(time.time() - self.curr_image_timestamp, 2)} sec", flush=True)
 
-        target_name = self.model_manager.predict(self.curr_image, self.timestep)
-        
-        if target_name == "manual_choose":
-            options = self.get_options(self.timestep)
-            target_name += "|" + "|".join(options)
-            
+        if self.method == "MANUAL":
+            target_name = self.model_manager.manual_predict(self, self.timestep, self.task_name, self.part_name)
+        else:
+            target_name = self.model_manager.predict(self.curr_image, self.timestep)
         self.state_pub.publish(String(data=target_name))
         return target_name
 
