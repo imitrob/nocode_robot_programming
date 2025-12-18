@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import AutoImageProcessor, AutoModel
 from typing import List, Optional
 import warnings
 # silence the specific xFormers-not-available notices from DINOv2
@@ -29,7 +30,42 @@ class DINOFeaturePresence:
     ):
         self.dino_variant = dino_variant
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = torch.hub.load('facebookresearch/dinov2', dino_variant).to(self.device).eval()
+        try:
+            self.model = torch.hub.load('facebookresearch/dinov2', dino_variant).to(self.device).eval()
+        except RuntimeError: # not found in torch.hub, try huggingface
+            processor = AutoImageProcessor.from_pretrained(dino_variant)
+            self.model = AutoModel.from_pretrained(dino_variant).to("cuda").eval()
+            ## Monkey patch
+            @torch.inference_mode()
+            def forward_features_dinov3_like_dinov2(model, pixel_values, bool_masked_pos=None):
+                """
+                Mimics dinov2.models.vision_transformer.DinoVisionTransformer.forward_features()
+                but for HF Transformers DINOv3.
+
+                Returns:
+                dict with keys:
+                    - x_norm_clstoken
+                    - x_norm_regtokens
+                    - x_norm_patchtokens
+                    - x_prenorm   (NOT available in HF; set to None)
+                    - masks       (maps to bool_masked_pos)
+                """
+                out = model(pixel_values=pixel_values, bool_masked_pos=bool_masked_pos, return_dict=True)
+
+                x_norm = out.last_hidden_state  # (B, 1 + R + P, C) :contentReference[oaicite:2]{index=2}
+                R = int(getattr(model.config, "num_register_tokens", 0))
+
+                return {
+                    "x_norm_clstoken": x_norm[:, 0],
+                    "x_norm_regtokens": x_norm[:, 1 : 1 + R],
+                    "x_norm_patchtokens": x_norm[:, 1 + R :],
+                    "x_prenorm": None,          # HF DINOv3 does not expose the pre-final-LN tokens like DINOv2 does :contentReference[oaicite:3]{index=3}
+                    "masks": bool_masked_pos,    # HF name for masked-patch positions :contentReference[oaicite:4]{index=4}
+                }
+            
+            # bind to this specific model instance
+            import types
+            self.model.forward_features = types.MethodType(forward_features_dinov3_like_dinov2, self.model)
 
         self.input_size = int(input_size)
         self.batch_size = int(batch_size)

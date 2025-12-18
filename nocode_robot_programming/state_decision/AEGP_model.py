@@ -101,19 +101,27 @@ class AEGP():
             labels = mean_probs.argmax(dim=-1)  # (N,)
 
         # (2/3) TMP: PLOT PROBS
-        self.mean_probs.append([float(mean_probs[0][0]), float(mean_probs[0][1])])
+        if self.binary:
+            self.mean_probs.append([float(mean_probs[0][0]), float(mean_probs[0][1])])
         
-        return self.y_cls[int(labels)]
+        try:
+            r = self.y_cls[int(labels)]
+        except IndexError:
+            print("rounded: ", labels, " but y_cls is: ", self.y_cls)
+            r = self.y_cls[-1]
+
+        return r
 
     def predict_many(self, X):
         r = [self.predict(x) for x in X]
         
         # (3/3) TMP: PLOT PROBS
-        import matplotlib.pyplot as plt
-        import numpy as np
-        plt.hist(np.array(self.mean_probs), bins=10)
-        self.mean_probs = []
-        plt.legend(self.y_cls)
+        if self.binary:
+            import matplotlib.pyplot as plt
+            import numpy as np
+            plt.hist(np.array(self.mean_probs), bins=10)
+            self.mean_probs = []
+            plt.legend(self.y_cls)
 
         return r
 
