@@ -204,11 +204,12 @@ class JoystickConnector():
         else:
             feedback2 = 0.
             self.z_axis_aggr = 0
-
-        self.feedback = (feedback0, feedback1, feedback2, feedback3, feedback4)
-
-        if sum(np.absolute(self.feedback)) > 0:
-            self.modality_in_control = 'joystick'
+        
+        if sum([feedback0,feedback1,feedback2]) == 0.0:
+            self.joystick_feedback = None
+        else:
+            self.joystick_feedback = [feedback0, feedback1, feedback2]
+        self.rot_feedback = [feedback3, feedback4]
 
 if __name__ == "__main__":
     from robot import PandaPy

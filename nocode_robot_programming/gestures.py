@@ -92,7 +92,6 @@ class TeleoperationByDrawing(HandListener):
                  teleop_aux_hand: str = "r",
                  link_gesture: str = "grab_strength",
                  teleop_scale: float = 0.3,
-                 teleop_rotate_eef: bool = True,
                  ):
         """
         Args:
@@ -102,8 +101,6 @@ class TeleoperationByDrawing(HandListener):
                 Defaults to "l" left hand. "r" for right hand. "" to disable aux action.
             link_gesture (str, optional): Gesture to trigger teleoperation
                 Defaults to "grab_strength" - Grab gesture triggers teleoperation.
-            teleop_rotate_eef (bool, optional): Reads angle of hand and rotates 7th joint.
-                Defaults to True.
         """
         super(TeleoperationByDrawing, self).__init__()
         self.teleop_hand = teleop_hand 
@@ -111,10 +108,8 @@ class TeleoperationByDrawing(HandListener):
         
         self.link_gesture = link_gesture
         self.teleop_scale = teleop_scale
-        self.teleop_rotate_eef = teleop_rotate_eef
         
         self.scene_anchor_save = None #[0.4, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0] # x,y,z,qx,qy,qz,qw [m] wrt. robot base
-        self.eef_rot = 0.0
         self.teleop_trigger = False
 
         play_thread = threading.Thread(target=sound_thread, args=(self,), daemon=True)
@@ -205,82 +200,177 @@ class TeleoperationByDrawing(HandListener):
             mouse3d[1] = mouse3d_[2]
             mouse3d[2] = mouse3d_[1]
 
-            if self.teleop_rotate_eef:
-                x,y = self.hand_frames[-1].r.direction()[0:2]
-                angle = np.arctan2(y,x)
-
             if not self.is_drawing: # init anchor
                 self.anchor = mouse3d
                 self.scene_anchor = deepcopy(self.scene_anchor_save)
                 self.is_drawing = True
 
-                if self.teleop_rotate_eef:
-                    self.eef_rot_scene = deepcopy(self.eef_rot)
-                    self.live_mode_drawing_eef_rot_anchor = angle
-
             #goal_pose = goal_pose + (mouse3d - self.anchor)
             goal_pose = deepcopy(self.scene_anchor)
-            goal_pose[0] += np.clip((mouse3d[0] - self.anchor[0]), -0.1, 0.1) 
-            goal_pose[1] += np.clip((mouse3d[1] - self.anchor[1]), -0.1, 0.1)
-            goal_pose[2] += np.clip((mouse3d[2] - self.anchor[2]), -0.1, 0.1)
 
-            if self.teleop_rotate_eef:
-                self.eef_rot = deepcopy(self.eef_rot_scene)
-                self.eef_rot += (angle - self.live_mode_drawing_eef_rot_anchor)
-
-
-
-            current_position = self.panda.get_position() 
-            self.feedback = (np.clip((goal_pose[0] - current_position[0]) , -0.02, 0.02),
-                           np.clip((goal_pose[1] - current_position[1]) , -0.02, 0.02),
-                           np.clip((goal_pose[2] - current_position[2]) , -0.02, 0.02), 
-                           0.0, 
-                           0.0)
+            self.gesture_feedback = [
+                goal_pose[0] + (mouse3d[0] - self.anchor[0]) * 0.3,
+                goal_pose[1] + (mouse3d[1] - self.anchor[1]) * 0.3,
+                goal_pose[2] + (mouse3d[2] - self.anchor[2]) * 0.3,
+            ]
             
         else:
             pitch = self.hand_frames[-1].l.palm_normal.pitch()
             yaw = self.hand_frames[-1].l.direction.yaw()
             # print(f"{'left' if pitch < 1.0 else ''}{'right' if pitch > 2.0 else ''} {'up' if yaw < 1.0 else ''}{'down' if yaw > 2.0 else ''}")
             if self.hand_frames[-1].leapgestures.circle.present and self.hand_frames[-1].leapgestures.circle.clockwise: # yaw < 1.0:
-                feedback3 = -0.05
-                feedback4 = 0.0
+                if self.hand_frames[-1].leapgestures.circle.progress < 2:
+                    feedback3 = -0.01
+                    feedback4 = 0.0
+                else:
+                    feedback3 = -0.05
+                    feedback4 = 0.0
             elif self.hand_frames[-1].leapgestures.circle.present and not self.hand_frames[-1].leapgestures.circle.clockwise: #yaw > 2.0:
-                feedback3 = 0.05
-                feedback4 = 0.0
-            elif pitch < 1.0:
+                if self.hand_frames[-1].leapgestures.circle.progress < 2:
+                    feedback3 = 0.01
+                    feedback4 = 0.0
+                else:
+                    feedback3 = 0.05
+                    feedback4 = 0.0
+            elif pitch < 0.9:
                 feedback3 = 0.0
                 feedback4 = -0.05
-            elif pitch > 2.0:
+            elif pitch > 2.1:
                 feedback3 = 0.0
                 feedback4 = 0.05
             else:
                 feedback3 = 0.0
                 feedback4 = 0.0
 
-            self.feedback = (0.0, 0.0, 0.0,
-                             feedback3, feedback4,
-                             )
+            self.rot_feedback = [feedback3, feedback4]
+            self.gesture_feedback = None
 
-            self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]  #self.feedback
+            self.scene_anchor_save = [*self.panda.get_position(), *self.panda.get_orientation(scalar_first=False)]
             self.is_drawing = False
-
-        if sum(np.absolute(self.feedback)) > 0:
-            self.modality_in_control = 'gestures'
 
 
 def main(args):
+    import threading
+    import rclpy
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.node import Node
+    import tkinter as tk
+    import time
+    import math
+    from time import perf_counter, process_time
+
+    class Visualizer:
+        def __init__(self, width=800, height=400, title="Visualizer"):
+            self.width = int(width)
+            self.height = int(height)
+
+            self.root = tk.Tk()
+            self.root.title(title)
+            self.canvas = tk.Canvas(self.root, width=self.width, height=self.height, bg="white")
+            self.canvas.pack()
+
+            self.point = self.plot_visible_point(0.5, 0.0)
+
+        def _clamp(self, v, lo, hi):
+            return lo if v < lo else hi if v > hi else v
+
+        def _map_x(self, x):
+            x = self._clamp(float(x), 0.0, 1.0)
+            return x * (self.width - 1)
+
+        def _map_y(self, y):
+            y = self._clamp(float(y), -0.4, 0.4)
+            t = (y + 0.4) / 0.8  # [-0.4,0.4] -> [0,1]
+            return (1.0 - t) * (self.height - 1)
+
+        def plot_visible_point(self, x, y, radius=3):
+            cx = self._map_x(x)
+            cy = self._map_y(y)
+            r = float(radius)
+            return self.canvas.create_oval(cx - r, cy - r, cx + r, cy + r, fill="black", outline="")
+
+        def update_visible_point(self, handle, x, y, radius=3):
+            cx = self._map_x(x)
+            cy = self._map_y(y)
+            r = float(radius)
+            self.canvas.coords(handle, cx - r, cy - r, cx + r, cy + r)
+
+        def after(self, ms, fn):
+            self.root.after(ms, fn)
+
+        def run(self):
+            self.root.mainloop()
+
+    class FakePanda():
+        def get_position(self):
+            return [0.4,0.0,0.4]
+
+        def get_orientation(self, scalar_first):
+            return [1.0,0.0,0.0,0.0]
+
     rclpy.init()
 
-    teleop = TeleoperationByDrawing(
+    class SpinningRosNode(Node):
+        def __init__(self):
+            super().__init__(f"panda_node_{np.random.randint(100000)}")
+
+            self._executor = SingleThreadedExecutor()
+            self._executor.add_node(self)
+
+            self._spin_thread = threading.Thread(target=self._spin, daemon=True)
+            self._spin_thread.start()
+
+        def _spin(self):
+            # Small timeout makes the thread yield regularly.
+            # 0.01 is a good starting point.
+            while rclpy.ok():
+                self._executor.spin_once(timeout_sec=0.01)
+
+
+    class TeleoperationByDrawingNode(TeleoperationByDrawing, SpinningRosNode):
+        pass
+
+    teleop = TeleoperationByDrawingNode(
         teleop_hand = args['teleop_hand'], 
         teleop_aux_hand = args['teleop_aux_hand'],
         link_gesture = args['link_gesture'],
         teleop_scale = args['teleop_scale'],
-        teleop_rotate_eef = args['teleop_rotate_eef'],
+        # teleop_rotate_eef = args['teleop_rotate_eef'],
     )
+    teleop.panda = FakePanda()
+    teleop.viz = Visualizer()
+    teleop.super_gp = [0.4,0.0,0.4] 
+    teleop.feedback = [0.0,0.0,0.0,0.0,0.0]
+    teleop.feedback_gripper = "none"
+    times = [0.001]
 
-    while True:
-        teleop.step()
+
+    GUI_HZ = 60
+    TELEOP_HZ = 20
+
+    last_print = (0.0, 0.0)
+
+    def tick():
+        nonlocal last_print
+        t0 = perf_counter(), process_time()
+
+        teleop.teleop_step()
+        t1 = perf_counter(), process_time()
+
+        # GUI update (fast; one coords call)
+        teleop.viz.update_visible_point(teleop.viz.point, teleop.t/1000, teleop.t/1000)
+        t2 = perf_counter(), process_time()
+
+        # throttle prints (e.g., 10 Hz)
+        now = perf_counter(), process_time()
+        if now[0] - last_print[0] > 0.1:
+            print(f"wall: tick {(t2[0]-t0[0])*1000:.2f}ms (teleop {(t1[0]-t0[0])*1000:.2f}ms, gui {(t2[0]-t1[0])*1000:.2f}ms); cpu: tick {(t2[1]-t0[1])*1000:.2f}ms (teleop {(t1[1]-t0[1])*1000:.2f}ms, gui {(t2[1]-t1[1])*1000:.2f}ms)")
+            last_print = now
+
+        teleop.viz.root.after(int(1000 / TELEOP_HZ), tick)
+
+    teleop.viz.root.after(0, tick)
+    teleop.viz.run()
 
 
 if __name__ == "__main__":

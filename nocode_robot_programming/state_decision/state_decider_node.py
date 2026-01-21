@@ -17,7 +17,7 @@ from nocode_robot_programming.state_decision.utils import Filename, visualize_vi
 from nocode_robot_programming.state_decision.state_decider_model_manager import StateDeciderModelManager
 
 WARNING_WHEN_IMAGE_OLDER_THAN = 0.2 # sec
-MAX_TRAIN_TIME = 10.0 # sec
+MAX_TRAIN_TIME = 60.0 # sec
 
 class StateDeciderNode(SpinningRosNode):
     def __init__(self, method: str):
@@ -62,7 +62,9 @@ class StateDeciderNode(SpinningRosNode):
         self.training_finished.clear()
         self.training_request.set()
         if not self.training_finished.wait(MAX_TRAIN_TIME):
+            print("CHECK SEE THIS MESSAGE!!!!", flush=True)
             raise Exception("Training not finished in time, adjust MAX_TRAIN_TIME")
+        print("TRAIN CALL FINISHED!!!", flush=True)
         return res
 
     def train(self):
@@ -97,6 +99,10 @@ class StateDeciderNode(SpinningRosNode):
             target_name = self.model_manager.manual_predict(self, self.timestep, self.task_name, self.part_name)
         else:
             target_name = self.model_manager.predict(self.curr_image, self.timestep)
+    
+        if target_name == "nomodel":
+            return target_name
+
         self.state_pub.publish(String(data=target_name))
         return target_name
 
