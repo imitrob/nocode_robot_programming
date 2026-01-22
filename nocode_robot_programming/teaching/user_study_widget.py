@@ -109,17 +109,26 @@ _busy = False
 
 def user_study_widget(lfd):
     def single_run(handler):
-        """Ignore clicks while handler is still running and disable the button."""
+        """Ignore clicks while handler is still running; disable button + input controls."""
         def wrapped(btn):
             global _busy
             if _busy:
-                # already running, ignore this click
                 return
+
             _busy = True
             btn.disabled = True
+
+            prev_states = [w.disabled for w in _controls_to_lock]
+            for w in _controls_to_lock:
+                w.disabled = True
+
             try:
                 handler(btn)
             finally:
+                # restore previous disabled states
+                for w, st in zip(_controls_to_lock, prev_states):
+                    w.disabled = st
+
                 _busy = False
                 btn.disabled = False
         return wrapped
@@ -160,9 +169,11 @@ def user_study_widget(lfd):
         lfd.home_gripper()
         lfd.move_template_start()
         lfd.traj_rec()
-        lfd.save(task_name)
-        lfd.show(task_name)
+        suc = lfd.save(task_name)
+        if suc:
+            lfd.show(task_name)
         lfd.move_template_start()
+        return suc
 
     def normalize_person(p: str) -> str:
         """
@@ -299,6 +310,9 @@ def user_study_widget(lfd):
         ),
     )
 
+
+    _controls_to_lock = [person_text, modality_toggle, task_toggle]
+
     def update_task_status():
         """
         Called whenever person/modality/task changes, or after recording/training.
@@ -365,8 +379,13 @@ def user_study_widget(lfd):
         with run_out:
             run_out.clear_output()
             print(f"[teaching] Recording task: {task_name}")
-            human_record(task_name)
-            print(f"[teaching] Finished")
+            suc = human_record(task_name)
+            if suc:
+                print(f"[teaching] Finished")
+            else:
+                print(f"")
+                print(f"[teaching] Finished, No skill is saved!")
+
 
         # Newly recorded file now exists; refresh status labels & Play button
         update_task_status()
