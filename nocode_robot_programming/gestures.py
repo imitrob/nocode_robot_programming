@@ -164,6 +164,7 @@ class TeleoperationByDrawing(HandListener):
             self.teleop_position_compute(trigger)
         
         else:
+            self.gesture_feedback = None
             self.is_drawing = False
         
         if self.is_hand_visible(self.teleop_aux_hand) and self.is_hand_visible(self.teleop_hand):
@@ -349,6 +350,7 @@ def main(args):
     TELEOP_HZ = 20
 
     last_print = (0.0, 0.0)
+    teleop.gesture_feedback = (0.4,0.0,0.4)
 
     def tick():
         nonlocal last_print
@@ -358,7 +360,7 @@ def main(args):
         t1 = perf_counter(), process_time()
 
         # GUI update (fast; one coords call)
-        teleop.viz.update_visible_point(teleop.viz.point, teleop.t/1000, teleop.t/1000)
+        teleop.viz.update_visible_point(teleop.viz.point, teleop.gesture_feedback[0]/1000, teleop.gesture_feedback[1]/1000)
         t2 = perf_counter(), process_time()
 
         # throttle prints (e.g., 10 Hz)
