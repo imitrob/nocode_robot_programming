@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            "switcher = nocode_robot_programming.state_decision.state_decider_node:main",
         ],
     },
 )

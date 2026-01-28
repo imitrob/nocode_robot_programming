@@ -157,7 +157,7 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
         return datasets
 
 
-    def load_deploy(self, task_name: str, e: int = 10) -> tuple[list[ImageDatasetView], ImageDatasetView]:
+    def load_deploy_from_task(self, task_name: str, e: int = 10) -> tuple[list[ImageDatasetView], ImageDatasetView]:
         """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. 
         
             - Each dataset tuple includes a single DS, exception is the last that contains all images.
@@ -180,7 +180,7 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
             for name in index['names']:
                 if Filename(name).part_name in ds['relevant_parts']:
                     file_names.append(name) 
-            d = self.get_auto_dataset_view(self, relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=file_names)
+            d = self.get_auto_dataset_view(relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=file_names)
             if d is not None:
                 datasets.append(d)
 
@@ -190,7 +190,7 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
             if Filename(name).is_demo:
                 relevant_parts.append(name)
 
-        all_images_dataset = self.get_auto_dataset_view(self, relevant_parts=relevant_parts, at=slice(None, None), file_names=file_names)
+        all_images_dataset = self.get_auto_dataset_view(relevant_parts=relevant_parts, at=slice(None, None), file_names=file_names)
 
         return datasets, all_images_dataset
 

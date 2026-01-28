@@ -13,6 +13,17 @@ from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gra
 from IPython.display import display, HTML
 import re
 
+# Might be moved later to utils
+class cc:
+    H = '\033[95m'
+    OK = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    W = '\033[93m'
+    F = '\033[91m'
+    E = '\033[0m'
+    B = '\033[1m'
+    U = '\033[4m'
 
 _TRIAL_RE = re.compile(r"^(?P<base>.+)_trial_(?P<n>\d+)$")
 
@@ -326,8 +337,14 @@ class TrajectoryDataset(TaskGraph, Dataset):
             # Rows = only originals/branches (trial == -1)
             for name, off, tr in zip(rec["names"], rec["offsets"], rec["trials"]):
                 if tr == -1:
+                    n_trials_int  = int(counts_by_offset.get(off, 0))
+                    if n_trials_int > 3:
+                        n_trials_str = f"{cc.OKGREEN}{n_trials_int}{cc.E}"
+                    else:
+                        n_trials_str = f"{cc.W}{n_trials_int}{cc.E}"
+
                     umt[user][modality][task_root].append(
-                        {"name": name, "offset": int(off), "trials": int(counts_by_offset.get(off, 0))}
+                        {"name": name, "offset": int(off), "trials": n_trials_str}
                     )
 
         # sort deterministically (by offset within each task; root(0) first)

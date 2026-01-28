@@ -6,6 +6,8 @@ import tkinter as tk
 import time
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
 import trajectory_data
+import nocode_robot_programming
+import numpy as np
 
 def choose_with_popup(options, title="Choose target", master=None):
     """
@@ -191,6 +193,7 @@ def user_study_widget(lfd):
         - If include_modality=True:   p1_kin_peg_pick (depending on modality)
         """
         person_norm = normalize_person(person_text.value)
+        np.save(nocode_robot_programming.package_path+"/user_name.npy", person_text.value) # saves the last user name
         task_key = task_toggle.value       # 'test', 'peg_pick', 'probe', 'wrap'
         return f"{person_norm}{modality_toggle.value}_{task_key}"
         
@@ -212,8 +215,13 @@ def user_study_widget(lfd):
         """
         return task_name in list_available_tasks()
 
+    try:
+        person_name_placeholder = str(np.load(nocode_robot_programming.package_path+"/user_name.npy").item()) # tries to load last user name
+    except FileNotFoundError:
+        person_name_placeholder = "p1"
+
     person_text = widgets.Text(
-        value="p1",
+        value=person_name_placeholder,
         description="Person:",
         placeholder="e.g. p1",
         style={"description_width": "80px"},
@@ -409,6 +417,7 @@ def user_study_widget(lfd):
             # lfd.ui_progress_callback = ui_progress_callback
             # lfd.execution_plot_out = execution_plot_out
             lfd.play_skill(task_name, None, localize_box=False)
+            lfd.move_template_start()
             print(f"[play] Finished")
             
     @single_run

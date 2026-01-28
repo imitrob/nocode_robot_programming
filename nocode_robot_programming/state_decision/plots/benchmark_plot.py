@@ -209,7 +209,7 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
         ipt.show()
     plot_heatmap(np.array(task_means), c_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_task_group.png", jupyter_plot)
     
-    plot_heatmap(np.hstack([np.array(task_means), np.array(modality_means)]), np.hstack([np.array(b_idxs), np.array(c_idxs)]), models, "Test Accuracy (%)", out_path / "heatmap_test_mdltandtask_group.png", jupyter_plot)
+    plot_heatmap(np.hstack([np.array(task_means), np.array(modality_means)]), np.hstack([np.array(c_idxs), np.array(b_idxs)]), models, "Test Accuracy (%)", out_path / "heatmap_test_mdltandtask_group.png", jupyter_plot)
     
     plot_heatmap(np.array(diff_mod_means), d_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfclt_task_group.png", jupyter_plot)
     if jupyter_plot:

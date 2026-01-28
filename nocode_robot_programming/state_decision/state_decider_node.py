@@ -9,10 +9,9 @@ from cv_bridge import CvBridgeError, CvBridge
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from lfd_msgs.srv import StringService
 
-from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import load_deploy
-from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
+from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import TrajectoryDatasetEvaluationViewBuilder
 from skills_manager.ros_utils import SpinningRosNode
-from nocode_robot_programming.state_decision.utils import Filename, visualize_video_frame_with_text
+from nocode_robot_programming.state_decision.utils import visualize_video_frame_with_text
 from nocode_robot_programming.state_decision.state_decider_model_manager import StateDeciderModelManager
 
 WARNING_WHEN_IMAGE_OLDER_THAN = 0.2 # sec
@@ -54,7 +53,7 @@ class StateDeciderNode(SpinningRosNode):
         self.task_name: str | None = None
         self.part_name: str | None = None
 
-        self.loader = TrajectoryDataset()
+        self.dataset_builder = TrajectoryDatasetEvaluationViewBuilder()
 
     def train_call(self, msg, res):
         self.task_name = msg.text
@@ -69,9 +68,8 @@ class StateDeciderNode(SpinningRosNode):
     def train(self):
         assert self.task_name is not None
 
-        self.loader = TrajectoryDataset()
-
-        datasets, all_dataset = load_deploy(self.loader, self.task_name)
+        self.dataset_builder = TrajectoryDatasetEvaluationViewBuilder()
+        datasets, all_dataset = self.dataset_builder.load_deploy_from_task(self.task_name)
 
         self.model_manager.train(datasets, all_dataset)
 
@@ -105,7 +103,7 @@ class StateDeciderNode(SpinningRosNode):
         self.state_pub.publish(String(data=target_name))
         return target_name
 
-if __name__ == "__main__": 
+def main():
     parser = argparse.ArgumentParser(description="State Decider Node")
     parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/MANUAL', choices=["SIFT", "DINO", "AEGP", "MANUAL"], default="MANUAL")
     args = parser.parse_args()
@@ -133,3 +131,6 @@ if __name__ == "__main__":
         print(f"Target: {target_name}, {round(1.0 / (time.perf_counter()-t0))} smp/s")
 
     rclpy.spin(node)
+
+if __name__ == "__main__": 
+    main()
