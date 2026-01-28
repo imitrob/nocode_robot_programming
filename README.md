@@ -17,8 +17,7 @@ At `tests/`
 
 ## Datasets 
 
-D1: Collected dataset. Loader: `dataset_D1.py`
-D2: Artificial dataset. Loader: `dataset_D2.py`
+
 
 ## Notes:
 

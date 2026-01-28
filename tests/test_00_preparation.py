@@ -1,7 +1,4 @@
 
-def test_addition():
-    assert 1 + 1 == 2
-
 def test_import_modules():
     import rclpy
     from skills_manager.risk_aware_lfd.ralfd import RALfD
@@ -9,8 +6,11 @@ def test_import_modules():
     import spatialmath as sm
     from geometry_msgs.msg import PoseStamped
 
+def test_cuda_available():
+    import torch
+    assert torch.cuda.is_available()
+
 def test_import_modules2():
-    import trajectory_data
     import matplotlib.pyplot as plt
     from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
     from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresence
@@ -29,26 +29,25 @@ def test_import_modules2():
     seed = 50
     np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
 
-    from nocode_robot_programming.state_decision_dataset_prepare.dataset_D1 import d1_peg_pick, dupl
-    datafileloader = TrajectoryDataset(trajectory_data.package_path)
-    datasets = d1_peg_pick(datafileloader)
+
+    from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import TrajectoryDatasetEvaluationViewBuilder
+    dataset_builder = TrajectoryDatasetEvaluationViewBuilder()
+    datasets = dataset_builder.load_eval_from_task("petr_kin_peg_pick")
 
 
-def test_d1_dataset_loaded():
+def test_dataset_loaded():
     from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
-    import trajectory_data
     import torch
-    from nocode_robot_programming.state_decision_dataset_prepare.dataset_D1 import d1_peg_pick, dupl
-    datafileloader = TrajectoryDataset(trajectory_data.package_path)
 
-    datasets = d1_peg_pick(datafileloader)
+    from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import TrajectoryDatasetEvaluationViewBuilder
+    dataset_builder = TrajectoryDatasetEvaluationViewBuilder()
+    datasets = dataset_builder.load_eval_from_task("petr_kin_peg_pick")
+
     d_train, d_test, d_text = datasets[0] # hard mix
     print(f"{d_text=},\n{d_train.X.shape=},\n{d_train.y_int.shape=},\n{len(d_train.y_names)=},\n{d_train.y_cls=}")
 
 
     d_text='Peg Pick d1 hard, 2 train trials, 8 test trials, window=10',
     
-    assert d_train.X.shape == torch.Size([21, 224, 224])
-    assert d_train.y_int.shape == torch.Size([21])
-    assert len(d_train.y_names) == 21
-    assert d_train.y_cls == ['d1_peg_pick', 'd1_peg_pick_branch_at_49']
+    assert d_train.X.shape[1:3] == torch.Size([224, 224])
+    

@@ -45,8 +45,8 @@ def kill_other_ipykernels(force=False):
         print("No other ipykernel_launcher processes found.")
 
 # Preview what would be killed:
-for pid, cmd in list_other_ipykernels():
-    print(pid, cmd)
+# for pid, cmd in list_other_ipykernels():
+#     print(pid, cmd)
 
 ## TODO: FIX ERROR rclpy._rclpy_pybind11.RCLError with the following code
 # Run this in one cell to start ROS in a notebook
@@ -259,33 +259,6 @@ class Filename:
         else:
             return " ".join(self.task.split("_")[2:])
     
-
-def _ellipsize(items: List[str], max_chars: int = 60, sep: str = ", ") -> str:
-    """Join unique items and ellipsize to keep rows compact."""
-    uniq = list(dict.fromkeys(items))  # stable unique
-    s = sep.join(uniq)
-    if len(s) <= max_chars:
-        return s
-    # keep adding until limit, then ellipsis + count
-    out, total = [], 0
-    for it in uniq:
-        if out:
-            candidate = sep.join(out + [it])
-        else:
-            candidate = it
-        if len(candidate) > max_chars:
-            break
-        out.append(it)
-        total = len(out)
-    hidden = max(0, len(uniq) - total)
-    return (sep.join(out) + (f"{sep}… (+{hidden} more)" if hidden else ""))
-
-def _minmax(nums: List[int]) -> str:
-    if not nums:
-        return "-"
-    mn, mx = min(nums), max(nums)
-    return f"{mn}" if mn == mx else f"{mn}-{mx}"
-
 class To01FromDtype(torch.nn.Module):
     def forward(self, x: torch.Tensor):
         # x: (C,H,W) or (H,W). Map to [0,1] based on dtype/range.

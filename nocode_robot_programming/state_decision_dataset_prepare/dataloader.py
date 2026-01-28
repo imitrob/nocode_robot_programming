@@ -1,16 +1,24 @@
 from __future__ import annotations
 import os, glob, numpy as np, torch, time
-from typing import Dict, List, Any
+from typing import Dict, List, Set, Tuple
 from torch.utils.data import Dataset, DataLoader
-from collections import defaultdict
+from collections import defaultdict, Counter
 from pathlib import Path
 import cv2 as cv
 
 import trajectory_data
 from nocode_robot_programming.task_graph.task_graph import TaskGraph
-from nocode_robot_programming.state_decision.utils import Filename, _ellipsize, _minmax, To01FromDtype, saved_img_processing, saved_img_processing_old
+from nocode_robot_programming.state_decision.utils import Filename, saved_img_processing
 from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gray_video_cuda_captions, show_gray_video_cuda_captions_aligned
 from IPython.display import display, HTML
+import re
+
+
+_TRIAL_RE = re.compile(r"^(?P<base>.+)_trial_(?P<n>\d+)$")
+
+# Branch bases (NOT trials):
+_BRANCH_AT_RE   = re.compile(r"^(?P<orig>.+)_branch_at_(?P<at>\d+)$")
+_BRANCH_FROM_RE = re.compile(r"^(?P<orig>.+)_branch_from_(?P<frm>\d+)_at_(?P<at>\d+)$")
 
 class TimestepView(dict):
     """One rollout @ a single timestep with a convenience .image (H,W) uint8."""
@@ -46,8 +54,14 @@ class TrajectoryDataset(TaskGraph, Dataset):
                     'img_feedback_flag','spiral_flag','risk_flag',
                     'safe_flag','novel_risk_flag','novel_safe_flag','tag']
 
-    def __init__(self, package_path, keys=None, print_index: bool = False):
-        self.dir = os.path.join(package_path, "trajectories")
+    def __init__(self, package_path: str | None = None, keys=None, print_index: bool = False):
+        """ package_path (str) = custom trajectory package path
+        """
+        if package_path is None:
+            self.dir = os.path.join(trajectory_data.package_path, "trajectories")
+        else:
+            self.dir = package_path
+            
         self.files = sorted(glob.glob(os.path.join(self.dir, "*.npz")))
         if not self.files:
             raise FileNotFoundError(f"No .npz files found in {self.dir}")
@@ -56,6 +70,17 @@ class TrajectoryDataset(TaskGraph, Dataset):
         self._task_index = self._build_task_index()
         if print_index:
             print("Found tasks:\n" + self.__str__())
+
+    def __str__(self) -> str:
+        self.warn_incomplete_trials_and_branches()
+        return self.table_by_user_modality()
+
+    def __repr__(self):
+        return self.__str__()
+
+    def get_all_names(self, name_skill: str):
+        p = Path(f'{trajectory_data.package_path}/trajectories/')
+        return [file.name[:-4] for file in p.iterdir() if file.is_file() and file.name.startswith(name_skill)]
 
     def _build_task_index(self) -> Dict[str, Dict[str, List]]:
         """
@@ -108,12 +133,6 @@ class TrajectoryDataset(TaskGraph, Dataset):
         else:
             return len(data['grip'][0]), ""
 
-    def __str__(self):
-        return str(self.tasks)
-
-    def get_all_names(self, name_skill: str):
-        p = Path(f'{trajectory_data.package_path}/trajectories/')
-        return [file.name[:-4] for file in p.iterdir() if file.is_file() and file.name.startswith(name_skill)]
 
     # video_train_names = get_all_names("user_0_kine_peg_pick")
 
@@ -122,38 +141,11 @@ class TrajectoryDataset(TaskGraph, Dataset):
         ''' .../trajectories/new_skill.npz -> new_skill.npz '''
         return [f.split("/")[-1].split(".")[0] for f in self.files]
 
-
     @property
     def tasks(self) -> Dict[str, Dict[str, List]]:
         """Structured view of available tasks (names, offsets, trials, files)."""
         return self._task_index
     
-    def __str__(self) -> str:
-        """Pretty, compact table of the available tasks."""
-        if not self._task_index:
-            return "(no tasks)"
-        # Compute column values
-        rows = []
-        for task, rec in sorted(self._task_index.items()):
-            count = len(rec["files"])
-            names = _ellipsize(rec["names"], max_chars=50)
-            trials = _minmax(rec["trials"])
-            offsets = _minmax(rec["offsets"])
-            rows.append((task, str(count), names, trials, offsets))
-
-        # Column headers
-        headers = ("Task", "# Files", "Names (unique)", "Trials", "Offsets")
-        # Determine widths
-        col_widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
-
-        def fmt_row(cols):
-            return " | ".join(c.ljust(col_widths[i]) for i, c in enumerate(cols))
-
-        sep = "-+-".join("-" * w for w in col_widths)
-        out = [fmt_row(headers), sep]
-        out += [fmt_row(r) for r in rows]
-        return "\n".join(out)
-
     def summary(self) -> Dict[str, dict]:
         """
         Returns per-task stats useful for logs/UI:
@@ -289,6 +281,239 @@ class TrajectoryDataset(TaskGraph, Dataset):
             y_int = torch.concatenate([y_int, torch.tensor([i] * nsamples)])
             y_names.extend([file] * nsamples)
         return ImageDatasetView(X = X.squeeze(), Xt = Xt, y_int = y_int, y_names = y_names, y_cls = file_names)
+
+    @property
+    def all_tasks(self) -> List[str]:
+        ''' All task names '''
+        return list(self.tasks.keys())
+
+    def _split_user_modality_task(self, task_key: str) -> Tuple[str, str, str]:
+        """
+        task_key format: <user>_<modality>_<task...>
+        Returns (user, modality, task_root)
+        """
+        parts = task_key.split("_")
+        if len(parts) < 3:
+            return ("unknown", "unknown", task_key)
+        user = parts[0]
+        modality = parts[1]
+        task_root = "_".join(parts[2:])
+        return user, modality, task_root
+
+    def group_by_user_modality(self) -> Dict[str, Dict[str, Dict[str, List[dict]]]]:
+        """
+        Build a nested index:
+        { user: {
+            modality: {
+            task_root: [
+                { 'name': <original_or_branch_name>, 'offset': <int>, 'trials': <int> },
+                ...
+            ]
+            }
+        }
+        }
+        """
+        umt = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+        for task_key, rec in self._task_index.items():
+            user, modality, task_root = self._split_user_modality_task(task_key)
+
+            # Count trials per offset once
+            counts_by_offset = Counter(
+                off for off, tr in zip(rec["offsets"], rec["trials"]) if tr is not None and tr >= 0
+            )
+
+            # Rows = only originals/branches (trial == -1)
+            for name, off, tr in zip(rec["names"], rec["offsets"], rec["trials"]):
+                if tr == -1:
+                    umt[user][modality][task_root].append(
+                        {"name": name, "offset": int(off), "trials": int(counts_by_offset.get(off, 0))}
+                    )
+
+        # sort deterministically (by offset within each task; root(0) first)
+        for user in umt:
+            for modality in umt[user]:
+                for task_root in umt[user][modality]:
+                    umt[user][modality][task_root].sort(key=lambda x: (x["offset"], x["name"]))
+        return umt
+
+    def _format_table(self, rows: List[Tuple[str, str, str]]) -> str:
+        """
+        rows: list of (Task, Name/Branch, #Trials) for one (user, modality) section.
+        """
+        if not rows:
+            return "(no items)"
+        headers = ("Task", "Name/Branch", "# Trials")
+        # compute widths
+        col_widths = [
+            max(len(headers[i]), *(len(r[i]) for r in rows)) for i in range(3)
+        ]
+        def fmt(cols): return " | ".join(c.ljust(col_widths[i]) for i, c in enumerate(cols))
+        sep = "-+-".join("-" * w for w in col_widths)
+        out = [fmt(headers), sep]
+        out += [fmt(r) for r in rows]
+        return "\n".join(out)
+
+    def table_by_user_modality(self) -> str:
+        """
+        Returns a printable string clustered by user -> modality.
+        Each line is an original or a branch; trials are aggregated as a count.
+        """
+        umt = self.group_by_user_modality()
+        if not umt:
+            return "(no tasks)"
+
+        lines = []
+        for user in sorted(umt.keys()):
+            lines.append(f"User: {user}")
+            for modality in sorted(umt[user].keys()):
+                lines.append(f"  Modality: {modality}")
+                # build rows for this (user, modality)
+                section_rows = []
+                for task_root in sorted(umt[user][modality].keys()):
+                    variants = umt[user][modality][task_root]
+                    for v in variants:
+                        section_rows.append(
+                            (task_root, v["name"], str(v["trials"]))
+                        )
+                # indent the table
+                table = self._format_table(section_rows)
+                indented = "    " + table.replace("\n", "\n    ")
+                lines.append(indented)
+            lines.append("")  # blank line between users
+        return "\n".join(lines).rstrip()
+
+    def warn_incomplete_trials_and_branches(self, *, print_warnings: bool = True) -> List[str]:
+        """
+        Warns about:
+        A) Trials:
+            1) trial missing its parent base: <base>_trial_k exists but <base> missing
+            2) gaps in trial numbering: trial_1 exists but trial_0 missing, etc.
+
+        B) Branch bases:
+            3) any branch base requires original: <orig>_branch_* exists but <orig> missing
+            4) chain requirement for branch_from:
+                <orig>_branch_from_<frm>_at_<at> requires a branch at <frm>
+                specifically: <orig>_branch_from_<any>_at_<frm> must exist
+                (for frm==0, the required parent is the original <orig>)
+
+        Notes:
+        - This checks only within each task_key entry of self._task_index.
+        - It uses rec["names"] strings (whatever you store there).
+        """
+        warnings: List[str] = []
+
+        for task_key, rec in self._task_index.items():
+            names: Set[str] = set(rec["names"])
+
+            # ---------- A) Trials ----------
+            trials_by_base: Dict[str, Set[int]] = defaultdict(set)
+
+            for nm in names:
+                m = _TRIAL_RE.match(nm)
+                if not m:
+                    continue
+                base = m.group("base")
+                n = int(m.group("n"))
+                trials_by_base[base].add(n)
+
+            for base, nums in sorted(trials_by_base.items()):
+                # (A1) missing trial parent base
+                if base not in names:
+                    warnings.append(
+                        f"[missing trial parent] task='{task_key}': trial(s) exist for base '{base}' "
+                        f"but parent '{base}' is missing. Present trials: {sorted(nums)}"
+                    )
+
+                # (A2) missing previous trials (gaps)
+                if nums:
+                    max_n = max(nums)
+                    missing = [k for k in range(0, max_n + 1) if k not in nums]
+                    if missing:
+                        warnings.append(
+                            f"[missing previous trial] task='{task_key}': base '{base}' has trial gap(s). "
+                            f"Present: {sorted(nums)}; Missing: {missing}"
+                        )
+
+            # ---------- B) Branch bases ----------
+            # Collect branch bases per original, keyed by the "at" offset.
+            # We track:
+            #   branch_at_offsets[orig]    = {at, ...} for names like orig_branch_at_at
+            #   branch_from_at_offsets[orig] = {at, ...} for names like orig_branch_from_*_at_at
+            branch_at_offsets: Dict[str, Set[int]] = defaultdict(set)
+            branch_from_at_offsets: Dict[str, Set[int]] = defaultdict(set)
+
+            # Also record all branch bases we saw so we can validate them
+            branch_bases: List[Tuple[str, str]] = []  # (kind, name)
+
+            for nm in names:
+                # Skip trial names; branch parentage is about branch bases.
+                if _TRIAL_RE.match(nm):
+                    continue
+
+                m_at = _BRANCH_AT_RE.match(nm)
+                if m_at:
+                    orig = m_at.group("orig")
+                    at = int(m_at.group("at"))
+                    branch_at_offsets[orig].add(at)
+                    branch_bases.append(("branch_at", nm))
+                    continue
+
+                m_from = _BRANCH_FROM_RE.match(nm)
+                if m_from:
+                    orig = m_from.group("orig")
+                    frm = int(m_from.group("frm"))
+                    at = int(m_from.group("at"))
+                    branch_from_at_offsets[orig].add(at)
+                    branch_bases.append(("branch_from", nm))
+                    continue
+
+            # (B3) any branch base requires the original
+            for kind, nm in branch_bases:
+                if kind == "branch_at":
+                    m = _BRANCH_AT_RE.match(nm)
+                    assert m
+                    orig = m.group("orig")
+                    if orig not in names:
+                        warnings.append(
+                            f"[missing original for branch] task='{task_key}': branch '{nm}' exists but "
+                            f"original '{orig}' is missing."
+                        )
+
+                elif kind == "branch_from":
+                    m = _BRANCH_FROM_RE.match(nm)
+                    assert m
+                    orig = m.group("orig")
+                    frm = int(m.group("frm"))
+
+                    # Original must exist regardless (your requirement)
+                    if orig not in names:
+                        warnings.append(
+                            f"[missing original for branch] task='{task_key}': branch '{nm}' exists but "
+                            f"original '{orig}' is missing."
+                        )
+
+                    # (B4) chain: branch_from_<frm>_at_* requires a branch at <frm>
+                    # - if frm==0: parent is the original (already checked above)
+                    # - else: require existence of *some* branch_from_<any>_at_<frm>
+                    if frm != 0:
+                        has_parent_branch_at_frm = (
+                            frm in branch_from_at_offsets.get(orig, set())
+                        )
+                        if not has_parent_branch_at_frm:
+                            warnings.append(
+                                f"[missing branch parent] task='{task_key}': branch '{nm}' requires a parent "
+                                f"branch ending at {frm}, i.e. '{orig}_branch_from_<any>_at_{frm}', but none found."
+                            )
+
+        if print_warnings and warnings:
+            print("Consistency warnings:")
+            for w in warnings:
+                print(" - " + w)
+        elif print_warnings:
+            print("No trial/branch consistency issues found.")
+
+        return warnings
 
 class ImageDatasetView(Dataset):
     def __init__(self, X, Xt, y_int, y_names, y_cls):

@@ -423,7 +423,7 @@ def user_study_widget(lfd):
 
         run_log = new_run_log(f"Task graph {task_name}", _run_counter, log_accordion)
         with run_log:
-            loader = TrajectoryDataset(trajectory_data.package_path)
+            loader = TrajectoryDataset()
             loader.plot_task_graph(task_name)
             print(f"[task graph] Finished")
 

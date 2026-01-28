@@ -11,7 +11,6 @@ from lfd_msgs.srv import StringService
 
 from nocode_robot_programming.state_decision_dataset_prepare.dataset_auto import load_deploy
 from nocode_robot_programming.state_decision_dataset_prepare.dataloader import TrajectoryDataset
-import trajectory_data
 from skills_manager.ros_utils import SpinningRosNode
 from nocode_robot_programming.state_decision.utils import Filename, visualize_video_frame_with_text
 from nocode_robot_programming.state_decision.state_decider_model_manager import StateDeciderModelManager
@@ -55,7 +54,7 @@ class StateDeciderNode(SpinningRosNode):
         self.task_name: str | None = None
         self.part_name: str | None = None
 
-        self.loader = TrajectoryDataset(trajectory_data.package_path)
+        self.loader = TrajectoryDataset()
 
     def train_call(self, msg, res):
         self.task_name = msg.text
@@ -70,7 +69,7 @@ class StateDeciderNode(SpinningRosNode):
     def train(self):
         assert self.task_name is not None
 
-        self.loader = TrajectoryDataset(trajectory_data.package_path)
+        self.loader = TrajectoryDataset()
 
         datasets, all_dataset = load_deploy(self.loader, self.task_name)
 
