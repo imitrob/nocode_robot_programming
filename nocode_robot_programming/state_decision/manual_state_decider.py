@@ -41,13 +41,13 @@ class StateDeciderManual(StateDeciderBase):
 
             parent_offset = self.ds_parents[parent_idx]
 
-            parent_name = search_for_parent(node.loader.tasks[task_name], parent_offset)
+            parent_name = search_for_parent(node.dataset_builder.tasks[task_name], parent_offset)
             print("manual_predict, timestep: ", timestep, "part_name: ", part_name, " parent_offset: ", parent_name, parent_name == part_name)
 
             if parent_name != part_name:
                 return "continue"
 
-            ds = cluster(node.loader.tasks[task_name])
+            ds = cluster(node.dataset_builder.tasks[task_name])
 
             options = None
             for ds_ in ds:

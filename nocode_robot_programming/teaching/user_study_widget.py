@@ -11,20 +11,17 @@ import numpy as np
 
 def choose_with_popup(options, title="Choose target", master=None):
     """
-    Modal popup with 2–5 large buttons.
+    Modal popup with up to 9 large buttons arranged in a 3x3 grid.
     Blocks until THIS window is closed, then returns the chosen option
     (or None if closed via the window X).
 
     options : list
         List of payloads (labels or any objects; str() is used for text).
-    title   : str
-        Window title and heading text.
-    master  : tk.Tk or tk.Toplevel or None
-        Existing root; if None, an existing default root is reused if present,
-        otherwise a hidden root is created temporarily.
     """
     if not options:
         raise ValueError("options must be a non-empty list")
+
+    options = list(options)#[:9]
 
     owns_root = False
 
@@ -44,7 +41,7 @@ def choose_with_popup(options, title="Choose target", master=None):
     dialog.title(title)
 
     # Make it fairly large and centered
-    width, height = 600, 300
+    width, height = 720, 420
     dialog.update_idletasks()
     sw = dialog.winfo_screenwidth()
     sh = dialog.winfo_screenheight()
@@ -79,20 +76,28 @@ def choose_with_popup(options, title="Choose target", master=None):
         chosen["value"] = value
         dialog.destroy()  # ends wait_window
 
-    # Vertical list of big buttons
-    for opt in options:
+    # Configure 3x3 grid to expand nicely
+    for r in range(3):
+        btn_frame.grid_rowconfigure(r, weight=1, uniform="row")
+    for c in range(3):
+        btn_frame.grid_columnconfigure(c, weight=1, uniform="col")
+
+    # Create buttons in a 3x3 grid
+    for i, opt in enumerate(options):
+        r, c = divmod(i, 3)
         txt = str(opt)
         btn = tk.Button(
             btn_frame,
             text=txt,
             font=("Arial", 13),
-            width=30,          # good for ~30-char labels
-            anchor="w",        # left-align text
+            anchor="center",
+            justify="center",
+            wraplength=200,
             command=lambda v=opt: on_click(v),
-            padx=10,
-            pady=5,
+            padx=12,
+            pady=12,
         )
-        btn.pack(fill="x", pady=5)
+        btn.grid(row=r, column=c, sticky="nsew", padx=10, pady=10)
 
     dialog.lift()
     dialog.focus_force()
@@ -408,14 +413,25 @@ def user_study_widget(lfd):
                 print("[play] nothing to play.")
             return
 
+        plot_out = widgets.Output(layout=widgets.Layout(border="1px solid #ddd", padding="4px", margin="6px 0 0 0"))
+
         run_log = new_run_log(f"Play {task_name}", _run_counter, log_accordion)
         with run_log:
             print(f"[training] Started ({task_name})")
             lfd.retrain(task_name)
             print(f"[training] Finished")
             print(f"[play] Playing: {task_name}")
-            # lfd.ui_progress_callback = ui_progress_callback
-            # lfd.execution_plot_out = execution_plot_out
+            display(plot_out)
+            
+            # reset plot state + history for this run
+            if hasattr(lfd, "_exec_plot_state"):
+                delattr(lfd, "_exec_plot_state")
+            for k in exec_history:
+                exec_history[k].clear()
+
+            lfd.execution_plot_out = plot_out
+            lfd.ui_progress_callback = ui_progress_callback
+
             lfd.play_skill(task_name, None, localize_box=False)
             lfd.move_template_start()
             print(f"[play] Finished")
@@ -450,24 +466,12 @@ def user_study_widget(lfd):
     # Initial status
     update_task_status()
 
-    execution_plot_out = widgets.Output(
-    layout=widgets.Layout(
-        border="1px solid #ccc",
-        padding="4px",
-        max_height="400px",
-        overflow="auto",
-    )
-    )
-
-
     # Dashboard layout
     dashboard = widgets.VBox(
         [
             widgets.HTML("<h3>Human Teaching Dashboard</h3>"),
             config_box,
             teaching_box,
-            # widgets.HTML("<b>Execution plot (live)</b>"),
-            # execution_plot_out,
             widgets.HTML("<b>Log</b>"),
             log_out,
             log_accordion,
@@ -476,63 +480,183 @@ def user_study_widget(lfd):
 
     return dashboard  # last expression: renders inline
 
-# import matplotlib.pyplot as plt
-# from IPython.display import clear_output
+import io
+import numpy as np
+import ipywidgets as widgets
+from PIL import Image
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
-# # Keep a short rolling history (to avoid plotting tens of thousands of points)
-# from collections import deque
-# history_len = 300
-# exec_history = {
-#     "step": deque(maxlen=history_len),
-#     "curr_branch": deque(maxlen=history_len),
-#     "suggested_branch": deque(maxlen=history_len),
-#     "anomaly": deque(maxlen=history_len),
-# }
+# Tuned for 500 typical, up to 4000 rare
+UPDATE_EVERY = 10          # redraw every N steps (try 5 if you want smoother)
+MAX_DRAW_POINTS = 700      # max points drawn for the line (downsample if more)
+JPEG_QUALITY = 5          # lower = faster uglier (5..15 range is good)
+FIG_W_PX, FIG_H_PX = 1000, 200
+DPI = 200
 
-# def branch_to_int(branch_name: str) -> int:
-#     # Simple encoding so you can plot categorical branches as lines.
-#     # Adjust mapping to your real branch names.
-#     # Example: {'nominal':0, 'fallback':1, 'anomaly':2, ...}
-#     mapping = getattr(branch_to_int, "_mapping", {})
-#     if branch_name not in mapping:
-#         mapping[branch_name] = len(mapping)
-#         branch_to_int._mapping = mapping
-#     return mapping[branch_name]
+# Keep a short rolling history (to avoid plotting tens of thousands of points)
+exec_history = {
+    "gstep": [],         # monotonically increasing step we compute
+    "curr_branch": [],   # int id
+    "anomaly": [],       # bool
+}
 
-# def ui_progress_callback(lfd, step, fps, curr_branch, target_state, suggested_branch, anomaly_flag):
-#     """
-#     Called from inside lfd.play_skill() loop.
-#     Updates a small execution plot in execution_plot_out.
-#     """
-#     exec_history["step"].append(step)
-#     exec_history["curr_branch"].append(branch_to_int(curr_branch))
-#     exec_history["suggested_branch"].append(branch_to_int(suggested_branch))
-#     exec_history["anomaly"].append(1 if anomaly_flag else 0)
+def _short_label(s: str, maxlen: int = 40) -> str:
+    s = str(s)
+    return s if len(s) <= maxlen else (s[: maxlen - 1] + "…")
 
-#     # For speed, you may want to only update every N steps:
-#     if step % 10 != 0:
-#         return
 
-#     with lfd.execution_plot_out:
-#         clear_output(wait=True)
-#         fig, ax1 = plt.subplots()
+def _apply_yticks_and_margin(ax):
+    mapping = getattr(branch_to_int, "_mapping", {})
+    if not mapping:
+        return 0
+    items = sorted(mapping.items(), key=lambda kv: kv[1])  # (name, id)
+    labels = [_short_label(k, 18) for k, _ in items]
+    ids = [v for _, v in items]
 
-#         steps = list(exec_history["step"])
-#         curr_b = list(exec_history["curr_branch"])
-#         sugg_b = list(exec_history["suggested_branch"])
-#         anomaly = list(exec_history["anomaly"])
+    ax.set_yticks(ids)
+    ax.set_yticklabels(labels)
+    ax.tick_params(axis="y", labelsize=7, pad=2)
+    ax.tick_params(axis="x", labelsize=7)
 
-#         ax1.plot(steps, curr_b, label="current branch")
-#         ax1.plot(steps, sugg_b, linestyle="--", label="suggested branch")
-#         ax1.set_xlabel("step")
-#         ax1.set_ylabel("branch id")
-#         ax1.legend(loc="upper left")
+    maxlen = max((len(l) for l in labels), default=0)
+    left = min(0.32, 0.10 + 0.010 * maxlen)
+    ax.set_position([left, 0.26, 0.98 - left, 0.70])
+    return len(items)
 
-#         # Optional: show anomaly as vertical markers
-#         for s, a in zip(steps, anomaly):
-#             if a:
-#                 ax1.axvline(s, linestyle=":", alpha=0.5)
 
-#         plt.tight_layout()
-#         plt.show()
-#         plt.close(fig)
+
+def branch_to_int(branch_name: str) -> int:
+    # Simple encoding so you can plot categorical branches as lines.
+    # Adjust mapping to your real branch names.
+    # Example: {'nominal':0, 'fallback':1, 'anomaly':2, ...}
+    mapping = getattr(branch_to_int, "_mapping", {})
+    if branch_name not in mapping:
+        mapping[branch_name] = len(mapping)
+        branch_to_int._mapping = mapping
+    return mapping[branch_name]
+
+def _update_branch_yticks(ax):
+    """Set y ticks/labels from branch_to_int mapping (name -> id)."""
+    mapping = getattr(branch_to_int, "_mapping", {})
+    if not mapping:
+        return 0
+    # sort by id
+    items = sorted(mapping.items(), key=lambda kv: kv[1])
+    labels = [k for k, _ in items]
+    ids = [v for _, v in items]
+    ax.set_yticks(ids)
+    ax.set_yticklabels(labels)
+    return len(items)
+
+def init_exec_plot_fast(lfd):
+    if hasattr(lfd, "_exec_plot_state"):
+        return
+
+    img = widgets.Image(format="jpeg")
+    buf = io.BytesIO()
+
+    fig = Figure(figsize=(FIG_W_PX / DPI, FIG_H_PX / DPI), dpi=DPI)
+    canvas = FigureCanvas(fig)
+    ax = fig.add_axes([0.18, 0.26, 0.80, 0.70])
+
+    # ONE executed path line
+    (line_curr,) = ax.plot([], [], lw=1, antialiased=False)
+
+    # anomaly as obvious star event
+    anom_scatter = ax.scatter([], [], s=160, marker="*", facecolors="red",
+                          edgecolors="black", linewidths=0.7, zorder=5)
+
+
+    ax.set_xlabel("step")
+    ax.set_ylabel("branch")
+    ax.grid(True, alpha=0.12)
+
+    last_map_size = _apply_yticks_and_margin(ax)
+
+    with lfd.execution_plot_out:
+        display(img)
+
+    lfd._exec_plot_state = dict(
+        img=img, buf=buf,
+        fig=fig, canvas=canvas, ax=ax,
+        line_curr=line_curr,
+        anom_scatter=anom_scatter,
+        last_map_size=last_map_size,
+
+        # for global-step reconstruction
+        step_offset=0,
+        prev_raw_step=None,
+    )
+
+
+def ui_progress_callback(lfd, step, fps, curr_branch, target_state, suggested_branch, anomaly_flag):
+    init_exec_plot_fast(lfd)
+    st = lfd._exec_plot_state
+
+    # Update mapping so y-ticks include any branches that appear
+    curr_id = branch_to_int(curr_branch)
+    _ = branch_to_int(suggested_branch)  # for tick labels only, not plotted
+
+    # --- global step reconstruction: when step goes backwards, add offset ---
+    if st["prev_raw_step"] is None:
+        st["prev_raw_step"] = step
+    else:
+        if step < st["prev_raw_step"]:
+            st["step_offset"] += st["prev_raw_step"]  # branch reset happened
+        st["prev_raw_step"] = step
+
+    gstep = st["step_offset"] + step
+
+    exec_history["gstep"].append(gstep)
+    exec_history["curr_branch"].append(curr_id)
+    exec_history["anomaly"].append(bool(anomaly_flag))
+
+    # redraw cadence: always redraw on anomaly so the star shows
+    if (not anomaly_flag) and (gstep % UPDATE_EVERY != 0):
+        return
+
+    ax = st["ax"]
+
+    # refresh y ticks + margin when mapping grows
+    map_size = len(getattr(branch_to_int, "_mapping", {}))
+    if map_size != st["last_map_size"]:
+        st["last_map_size"] = _apply_yticks_and_margin(ax)
+
+    steps = np.asarray(exec_history["gstep"], dtype=float)
+    curr_b = np.asarray(exec_history["curr_branch"], dtype=float)
+    anom = np.asarray(exec_history["anomaly"], dtype=bool)
+
+    n = steps.size
+    if n == 0:
+        return
+
+    # downsample line for speed, but keep full run shown on x-axis
+    stride = max(1, n // MAX_DRAW_POINTS)
+    st["line_curr"].set_data(steps[::stride], curr_b[::stride])
+
+    # anomaly event markers at (global_step, current_branch_id)
+    if anom.any():
+        st["anom_scatter"].set_offsets(np.c_[steps[anom], curr_b[anom]])
+    else:
+        st["anom_scatter"].set_offsets(np.empty((0, 2)))
+
+    # show ALL steps (global)
+    ax.set_xlim(float(steps[0]), float(steps[-1]))
+
+    # categorical y-range
+    if map_size > 0:
+        ax.set_ylim(-0.5, map_size - 0.5)
+    else:
+        ax.set_ylim(-0.5, float(curr_b.max()) + 0.5)
+
+    # render → JPEG bytes
+    st["canvas"].draw()
+    w, h = st["canvas"].get_width_height()
+    rgb = np.frombuffer(st["canvas"].tostring_rgb(), dtype=np.uint8).reshape(h, w, 3)
+    im = Image.fromarray(rgb, mode="RGB")
+
+    st["buf"].seek(0)
+    st["buf"].truncate(0)
+    im.save(st["buf"], format="JPEG", quality=JPEG_QUALITY, optimize=False)
+    st["img"].value = st["buf"].getvalue()
