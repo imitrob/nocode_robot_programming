@@ -103,7 +103,7 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
     # def load_anom(self, task_name: str, e: int = 10) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     #     return load_eval(self, task_name, e, anomaly=True)
 
-    def load_eval_from_task(self, task_name: str, e: int = 10, anomaly: bool = False) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
+    def load_eval_from_task(self, task_name: str, e: int = 10, anomaly: bool = False, max_classes: int | None = None) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
         """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. """
         decision_states = cluster(self.tasks[task_name], e)
         if DEBUG: print("Decision states: ", decision_states)
@@ -138,6 +138,20 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
                     else:
                         test_file_names.append(name)
 
+            if max_classes is not None:
+                ds['relevant_parts'] = ds['relevant_parts'][:max_classes]
+                new_train_file_names = []
+                new_test_file_names = []
+                for train_file_name in train_file_names:
+                    for relevant_part in ds['relevant_parts']:
+                        if ("_branch_" in relevant_part and relevant_part in train_file_name) or ("_branch_" not in train_file_name):
+                            new_train_file_names.append(train_file_name)
+                for test_file_name in test_file_names:
+                    for relevant_part in ds['relevant_parts']:
+                        if ("_branch_" in relevant_part and relevant_part in test_file_name) or ("_branch_" not in test_file_name):
+                            new_test_file_names.append(test_file_name)
+                train_file_names = list(set(new_train_file_names))
+                test_file_names = list(set(new_test_file_names))
 
             d_train = self.get_auto_dataset_view(relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=train_file_names, anomaly=anomaly)
             d_test = self.get_auto_dataset_view(relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=test_file_names, anomaly=anomaly)
