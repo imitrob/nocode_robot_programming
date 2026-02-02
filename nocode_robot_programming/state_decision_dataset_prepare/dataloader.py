@@ -339,9 +339,9 @@ class TrajectoryDataset(TaskGraph, Dataset):
                 if tr == -1:
                     n_trials_int  = int(counts_by_offset.get(off, 0))
                     if n_trials_int > 3:
-                        n_trials_str = f"{cc.OKGREEN}{n_trials_int}{cc.E}"
+                        n_trials_str = f"{n_trials_int}" #f"{cc.OKGREEN}{n_trials_int}{cc.E}"
                     else:
-                        n_trials_str = f"{cc.W}{n_trials_int}{cc.E}"
+                        n_trials_str = f"{n_trials_int}" # f"{cc.W}{n_trials_int}{cc.E}"
 
                     umt[user][modality][task_root].append(
                         {"name": name, "offset": int(off), "trials": n_trials_str}
@@ -380,8 +380,12 @@ class TrajectoryDataset(TaskGraph, Dataset):
         if not umt:
             return "(no tasks)"
 
+        total_trials = ""
+
         lines = []
         for user in sorted(umt.keys()):
+            total_trials += f"{user:15s} | "
+
             lines.append(f"User: {user}")
             for modality in sorted(umt[user].keys()):
                 lines.append(f"  Modality: {modality}")
@@ -390,14 +394,24 @@ class TrajectoryDataset(TaskGraph, Dataset):
                 for task_root in sorted(umt[user][modality].keys()):
                     variants = umt[user][modality][task_root]
                     for v in variants:
+                        total_trials += str(v["trials"]) + "+"
+                        if int(v["trials"]) <= 3:
+                            v["trials"] = f'{cc.W}{v["trials"]}{cc.E}'
                         section_rows.append(
                             (task_root, v["name"], str(v["trials"]))
                         )
+                    if total_trials[-1] == '+': total_trials = total_trials[:-1]
+                    total_trials += " "
+
                 # indent the table
                 table = self._format_table(section_rows)
                 indented = "    " + table.replace("\n", "\n    ")
                 lines.append(indented)
+                total_trials += "| "
+            total_trials += "\n"
             lines.append("")  # blank line between users
+        
+        print(total_trials)
         return "\n".join(lines).rstrip()
 
     def warn_incomplete_trials_and_branches(self, *, print_warnings: bool = True) -> List[str]:
