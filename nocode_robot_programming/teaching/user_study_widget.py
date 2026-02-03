@@ -140,30 +140,28 @@ def user_study_widget(lfd):
                 btn.disabled = False
         return wrapped
 
-    def new_run_log(title: str, _run_counter, log_accordion) -> widgets.Output:
+    def new_run_log(title: str, log_accordion) -> widgets.Output:
         """
-        Create a new collapsible Output panel for a single record/play run.
+        Create a new collapsible Output panel for a single record/play/show run.
         Returns the Output widget so you can 'with out:' print into it.
         """
+        nonlocal _run_counter
+
         out = widgets.Output(
             layout=widgets.Layout(
-                max_height="600px",   # log area scrolls internally
+                max_height="600px",
                 overflow="auto",
                 border="1px solid #eee",
                 padding="4px",
             )
         )
 
-        # Append new Output as a child of the Accordion
         children = list(log_accordion.children)
         children.append(out)
         log_accordion.children = children
 
-        # Set title (e.g., "03: Record p1k_peg_pick")
         idx = len(children) - 1
         log_accordion.set_title(idx, f"{_run_counter:02d}: {title}")
-
-        # Optionally auto-open the newest run and collapse others
         log_accordion.selected_index = idx
 
         _run_counter += 1
@@ -270,6 +268,18 @@ def user_study_widget(lfd):
         ),
     )
 
+    matching_files_actions = widgets.VBox(
+        [],
+        layout=widgets.Layout(
+            margin="4px 0px 0px 0px",
+            max_height="180px",
+            overflow="auto",
+            border="1px dashed #ddd",
+            padding="4px",
+        ),
+    )
+
+
     config_box = widgets.VBox(
         [
             widgets.HTML("<b>Configuration</b>"),
@@ -278,6 +288,7 @@ def user_study_widget(lfd):
             task_toggle,
             file_status_label,
             matching_files_label,
+            matching_files_actions,
         ],
         layout=widgets.Layout(
             border="1px solid #ccc",
@@ -370,16 +381,48 @@ def user_study_widget(lfd):
             
         # 3) list all available files that match the base name (prefix match)
         matching = [t for t in all_tasks if (t.startswith(full_name) and "_trial_" not in t)]
+        
+        matching_files_actions.children = ()
+
+
         if matching:
             matching_sorted = sorted(matching)
-            items = "<br>".join(matching_sorted)
             matching_files_label.value = (
-                f"<b>Available files matching prefix {full_name}</b><br>{items}"
+                f"<b>Available files matching prefix {full_name}</b>"
+                f" <span style='color:#666'>(click Show to visualize)</span>"
             )
+
+            rows = []
+            for t in matching_sorted:
+
+                matching = len([t_ for t_ in all_tasks if (t_.startswith(t) and "_trial_" in t_)])
+
+                name_html = widgets.HTML(f"<code>{t}</code> ({matching})")
+
+                btn_show = widgets.Button(
+                    description="Show",
+                    tooltip=f"lfd.show('{t}')",
+                    layout=widgets.Layout(width="90px"),
+                )
+
+                # IMPORTANT: bind `t` as a default argument to avoid late-binding bugs
+                @single_run
+                def _on_show_clicked(_btn, task=t):
+                    run_out = new_run_log(f"Show {task}", log_accordion)
+                    with run_out:
+                        run_out.clear_output()
+                        print(f"[show] {task}")
+                        lfd.show(task)
+                        print(f"[show] done")
+
+                btn_show.on_click(_on_show_clicked)
+
+                rows.append(widgets.HBox([name_html, btn_show], layout=widgets.Layout(justify_content="space-between")))
+            matching_files_actions.children = tuple(rows)
+
         else:
-            matching_files_label.value = (
-                f"<b>No files found matching prefix {full_name}</b>"
-            )
+            matching_files_label.value = f"<b>No files found matching prefix {full_name}</b>"
+
 
     # ------------------------------------------------
     # Button callbacks
@@ -388,7 +431,7 @@ def user_study_widget(lfd):
     def on_record_clicked(_):
         task_name = build_task_name()
 
-        run_out = new_run_log(f"Record {task_name}", _run_counter, log_accordion)
+        run_out = new_run_log(f"Record {task_name}", log_accordion)
         with run_out:
             run_out.clear_output()
             print(f"[teaching] Recording task: {task_name}")
@@ -407,7 +450,7 @@ def user_study_widget(lfd):
     def on_play_clicked(_):
         task_name = build_task_name()
         if task_name is None:
-            run_out = new_run_log("Play (no task)", _run_counter, log_accordion)
+            run_out = new_run_log("Play (no task)", log_accordion)
             with run_out:
                 run_out.clear_output()
                 print("[play] nothing to play.")
@@ -415,7 +458,7 @@ def user_study_widget(lfd):
 
         plot_out = widgets.Output(layout=widgets.Layout(border="1px solid #ddd", padding="4px", margin="6px 0 0 0"))
 
-        run_log = new_run_log(f"Play {task_name}", _run_counter, log_accordion)
+        run_log = new_run_log(f"Play {task_name}", log_accordion)
         with run_log:
             print(f"[training] Started ({task_name})")
             lfd.retrain(task_name)
@@ -440,13 +483,13 @@ def user_study_widget(lfd):
     def on_taskgraph_clicked(_):
         task_name = build_task_name()
         if task_name is None:
-            run_out = new_run_log("Task graph (no task)", _run_counter, log_accordion)
+            run_out = new_run_log("Task graph (no task)", log_accordion)
             with run_out:
                 run_out.clear_output()
                 print("[task graph] nothing to plot.")
             return
 
-        run_log = new_run_log(f"Task graph {task_name}", _run_counter, log_accordion)
+        run_log = new_run_log(f"Task graph {task_name}", log_accordion)
         with run_log:
             loader = TrajectoryDataset()
             loader.plot_task_graph(task_name)
