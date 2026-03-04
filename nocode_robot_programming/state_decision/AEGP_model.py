@@ -23,7 +23,8 @@ class AEGP():
         self.mean_probs = []
 
         self.tf_list = []
-        if crop:
+        self.crop = crop
+        if self.crop:
             self.tf_list.append(torchvision.transforms.CenterCrop(90))
 
         self.tf_list.append(torchvision.transforms.Resize((pix, pix), interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True))
@@ -33,6 +34,26 @@ class AEGP():
 
     def __str__(self):
         return f"{self.__class__.__name__},bin={self.binary}"
+
+    @property
+    def short_name(self) -> str:
+        s = self.__str__()
+
+        TO_NICE_NAMES = { # complicated name -> nice name
+            'AEGP,bin=False': 'AEGP Multiclass',
+            'AEGP,bin=True': 'AEGP Binary',
+        }
+        if s in TO_NICE_NAMES:
+            if self.crop == True:
+                return TO_NICE_NAMES[s] + " C"
+            else:
+                return TO_NICE_NAMES[s]
+        else:
+            if self.crop == True:
+                return s + " C"
+            else:
+                return s
+
 
     def _dataset_prepare(self, X):
         X = self.tf(X)

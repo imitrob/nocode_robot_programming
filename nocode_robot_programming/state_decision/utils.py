@@ -6,6 +6,9 @@ import trajectory_data
 import torch, torchvision
 from matplotlib.colors import ListedColormap, BoundaryNorm
 import cv2
+import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
+import random
 
 def list_other_ipykernels():
     me = os.getpid()
@@ -41,8 +44,6 @@ def kill_other_ipykernels(force=False):
             print(f"Killed {pid}: {cmd}")
         except ProcessLookupError:
             pass
-    if not victims:
-        print("No other ipykernel_launcher processes found.")
 
 # Preview what would be killed:
 # for pid, cmd in list_other_ipykernels():
@@ -298,9 +299,9 @@ def saved_img_processing_old(img):
     # img_tensor = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
     # return resize_transform(img_tensor) / 255.0
 
-def visualize_video_frame_with_text(image, text: str = "", color: tuple[int, int, int] = (0,0,255), press_for_next_frame: bool = False):
+def visualize_video_frame_with_text(image, text: str = "", color: tuple[int, int, int] = (0,0,255), press_for_next_frame: bool = False, resize=(64,64)):
     image = image.squeeze().astype(np.uint8)
-    image = cv2.resize(image, (64, 64), interpolation=cv2.INTER_AREA)
+    image = cv2.resize(image, resize, interpolation=cv2.INTER_AREA)
     
     cv2.putText(image, text, (0, 12), cv2.FONT_HERSHEY_SIMPLEX,
         0.5, color, 1, 2)
@@ -316,3 +317,138 @@ def visualize_video_frame_with_text(image, text: str = "", color: tuple[int, int
     if cv2.waitKey(25) & 0xFF == 27:  # Press 'Esc' to exit
         return True
     return False
+
+
+def user_study_tasks_only(dataset_builder, tasktemplates_to_evaluate=['peg_pick', 'probe', 'wrap']):
+    tasks_to_evaluate = []
+    for t in dataset_builder.all_tasks:
+        for tt in tasktemplates_to_evaluate:
+            if (tt in t):
+                tasks_to_evaluate.append(t) 
+    return tasks_to_evaluate
+
+def user_study_additional_task_only(dataset_builder):
+    # I made some filter, but I don't like it like this:
+    tasktemplates_to_evaluate = ['additional']
+    tasks_to_evaluate = []
+    for t in dataset_builder.all_tasks:
+        for tt in tasktemplates_to_evaluate:
+            if (tt in t):
+                tasks_to_evaluate.append(t) 
+    return tasks_to_evaluate
+
+
+def user_study_nice_model_names(model_names):
+    TO_NICE_NAMES = { # complicated name -> nice name
+    'dinov2_vits14,224,mean': 'dinov2 small mean',
+    'facebook/dinov3-vits16-pretrain-lvd1689m,224,mean': 'dinov3 small mean',
+    'facebook/dinov3-vitl16-pretrain-lvd1689m,224,mean': 'dinov3 large mean',
+    'dinov2_vits14,224,concat': 'dinov2 small concat',
+    'dinov2_vits14,224,attn,hard,mean,0.4': 'dinov2 small attn',
+    'dinov2_vits14,224,MIL,H=128,e=1000': 'dinov2 small MIL',
+    'SIFT': "SIFT",
+    'AEGP,bin=False': 'AEGP Multiclass',
+    }
+
+    for i in range(len(model_names)):
+        if model_names[i] in TO_NICE_NAMES:
+            model_names[i] = TO_NICE_NAMES[model_names[i]]
+
+    return model_names
+
+def y_cls_to_nice_name(y_cls):
+    f = Filename(y_cls[0])
+    name = str(f.task)
+    name += "_0"
+
+    for n in y_cls:
+        f = Filename(n) 
+        if f.offset != 0:
+            name += f"|{f.offset}"
+    return name
+
+
+
+def user_study_plot_hist(stats, 
+                         brackets = [[0.3, 0.7, "Camera doesn't see\ndiscriminated location.", 0.3]],
+                         savename: str = "sns_hist_2.pdf",
+                         print_examples: int = 0,
+                         print_howmany_over_90: bool = True,
+                         bins: int = 21,
+                         folder: str = "plot", 
+                        ):
+
+    keys = list(stats.keys())
+    vals = np.array(list(stats.values()), dtype=float)
+    if vals.max() > 1.5:  # if you stored 90 instead of 0.90
+        vals = vals / 100.0
+
+    bins = np.linspace(0, 1, bins)          # 10 bins from 0%..100%
+    
+    fig, ax = plt.subplots(figsize=(4, 2))
+    counts, edges, patches = ax.hist(vals, bins=bins, edgecolor="black")
+
+    # group keys by bin
+    idx = np.digitize(vals, edges) - 1
+    idx[idx == len(edges) - 1] = len(edges) - 2  # right-edge fix
+    groups = [[] for _ in range(len(edges) - 1)]
+    for k, i in zip(keys, idx):
+        groups[i].append(k)
+
+    # annotate each bar with count + example key(s)
+    for i, (c, p) in enumerate(zip(counts, patches)):
+        if c == 0:
+            continue
+        x = p.get_x() + p.get_width() / 2
+        y = p.get_height() - 3
+
+        txt = f"{int(c)}\n"
+        if print_examples > 0:
+            examples = groups[i][:print_examples]
+            txt += ", ".join(examples)
+        ax.text(x, y, txt, ha="center", va="bottom", fontsize=6, rotation=0)
+
+    ax.set_xlabel("Accuracy")
+    ax.set_ylabel("Tasks")
+    ax.set_xticks(np.linspace(0, 1, 6))
+    ax.set_xticklabels([f"{t:.0%}" for t in np.linspace(0, 1, 6)])
+
+    def bracket(ax, x1, x2, text, y_ax):
+        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+
+        # horizontal line
+        ax.plot([x1, x2], [y_ax, y_ax], transform=trans, clip_on=False)
+        # vertical ticks
+        ax.plot([x1, x1], [y_ax-0.03, y_ax], transform=trans, clip_on=False)
+        ax.plot([x2, x2], [y_ax-0.03, y_ax], transform=trans, clip_on=False)
+
+        # text
+        ax.text((x1+x2)/2, y_ax+0.02, text,
+                ha="center", va="bottom", transform=trans)
+
+    for b in brackets:
+        bracket(ax, b[0], b[1], b[2], b[3])
+
+    if print_howmany_over_90:
+        n_over_90 = (vals > 0.899).sum()
+        n_under_80 = (vals < 0.799).sum()
+        ax.text(0.03, 0.95,
+                f"> 90%: {n_over_90}/{len(vals)}\n< 80%: {n_under_80}/{len(vals)}",
+                transform=ax.transAxes,
+                ha="left", va="top")
+
+    plt.tight_layout()
+    from pathlib import Path
+
+    p = Path(f"auto_fig_generator/{folder}/")
+    p.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(Path(f"auto_fig_generator/{folder}/") / savename)
+    plt.show()
+
+
+def set_seed(seed: int = 48):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)

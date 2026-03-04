@@ -123,7 +123,7 @@ def main():
 
         target_name = node.predict()
         if node.curr_image is not None:
-            visualize_video_frame_with_text(node.curr_image, text=target_name[-8:])
+            visualize_video_frame_with_text(node.curr_image, text=target_name[-8:], resize=(224,224))
         else:
             time.sleep(0.5)
 

@@ -192,7 +192,7 @@ def show_gray_video_cuda_captions_aligned(
     caption_color: str = "white",
     caption_bbox: Optional[dict] = None,  # e.g. {"facecolor":"black","alpha":0.6,"pad":0.4,"boxstyle":"round"}
     Xt: Optional[Union[Sequence[int], torch.Tensor, np.ndarray]] = None,
-    max_rows: int = 8,
+    max_rows: int = 10,
 ):
     """
     Play a grayscale video tensor [T, H, W] (float32, 0..1) that lives on CUDA.
@@ -222,9 +222,6 @@ def show_gray_video_cuda_captions_aligned(
             captions_list = list(captions)
             assert len(captions_list) == T, "captions must have length T"
 
-    # ------------------------------------------------------------------
-    # If Xt is given: build timestep-wise stacked frames for animation
-    # ------------------------------------------------------------------
     if Xt is not None:
         # Convert Xt to numpy int array
         if isinstance(Xt, torch.Tensor):
@@ -271,9 +268,6 @@ def show_gray_video_cuda_captions_aligned(
             captions_list = [f"t={t_val} ({np.sum(Xt_np == t_val)} frames)"
                              for t_val in unique_ts]
 
-    # ------------------------------------------------------------------
-    # Standard animation code (unchanged, now possibly with bigger H)
-    # ------------------------------------------------------------------
     dpi = 100
     fig, ax = plt.subplots(
         figsize=(scale * W / dpi, scale * H / dpi),
@@ -293,16 +287,13 @@ def show_gray_video_cuda_captions_aligned(
     if captions_list is not None:
         if caption_bbox is None:
             caption_bbox = {"facecolor": "black", "alpha": 0.6, "pad": 0.4, "boxstyle": "round"}
-        if caption_fontsize is None:
-            # heuristic based on height
-            caption_fontsize = max(10, int(0.045 * H * scale))
 
         txt = ax.text(
             caption_xy[0], caption_xy[1],
             captions_list[0],
             transform=ax.transAxes,
             va="top", ha="left",
-            fontsize=caption_fontsize,
+            fontsize=7,
             color=caption_color,
             bbox=caption_bbox,
             animated=True  # important for blitting

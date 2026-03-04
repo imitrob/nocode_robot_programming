@@ -78,6 +78,25 @@ class DINOFeaturePresence:
 
     def __str__(self):
         return f"{self.dino_variant},{self.input_size},mean"
+    
+    @property
+    def short_name(self) -> str:
+        s = self.__str__()
+
+        TO_NICE_NAMES = { # complicated name -> nice name
+            'dinov2_vits14,224,mean': 'dinov2 small mean',
+            'facebook/dinov3-vits16-pretrain-lvd1689m,224,mean': 'dinov3 small mean',
+            'facebook/dinov3-vitl16-pretrain-lvd1689m,224,mean': 'dinov3 large mean',
+            'dinov2_vits14,224,concat': 'dinov2 small concat',
+            'dinov2_vits14,224,attn,hard,mean,0.4': 'dinov2 small attn',
+            'dinov2_vits14,224,MIL,H=128,e=1000': 'dinov2 small MIL',
+            'SIFT': "SIFT",
+            'AEGP,bin=False': 'AEGP Multiclass',
+        }
+        if s in TO_NICE_NAMES:
+            return TO_NICE_NAMES[s]
+        else:
+            return s
 
     def train(self, X: torch.Tensor, y: torch.Tensor, y_cls: List[str]) -> None:
         """
