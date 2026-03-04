@@ -629,6 +629,6 @@ class ImageDatasetView(Dataset):
             fps=fps,
             scale=scale,
             captions=captions,
-            Xt=self.Xt,          # shape [T], ints
-            max_rows=8           # optional, default 8
+            Xt=self.Xt, # shape [T], ints
+            max_rows=10
         ))

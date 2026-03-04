@@ -75,7 +75,7 @@ def plot_heatmap(matrix: np.ndarray, x_labels: List[str], y_labels: List[str], t
         ipt.save()
     else:
         fig.savefig(save_path, dpi=160, bbox_inches="tight")
-        plt.show()
+        plt.close(fig)
 
 
 def plot_grouped_bars_per_task(train: np.ndarray, test: np.ndarray, models: List[str],
@@ -101,7 +101,7 @@ def plot_grouped_bars_per_task(train: np.ndarray, test: np.ndarray, models: List
         ipt.save()
     else:
         fig.savefig(save_path, dpi=160, bbox_inches="tight")
-        plt.show()
+        plt.close(fig)
 
 
 def plot_bars_per_model(values: np.ndarray, x_labels: List[str], model_name: str, title: str, save_path: Path, jupyter_plot: bool):
@@ -135,7 +135,7 @@ def plot_bars_per_model(values: np.ndarray, x_labels: List[str], model_name: str
         ipt.save()
     else:
         fig.savefig(save_path, dpi=160, bbox_inches="tight")
-        plt.show()
+        plt.close(fig)
 
 
 def visualize_accuracies(train_2d: Sequence[Sequence[float]],
@@ -149,8 +149,8 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
     Returns
     -------
     dict with keys:
-      - 'out_dir': directory path containing PNGs
-      - 'zip_path': path to ZIP with all PNGs
+      - 'out_dir': directory path containing figures
+      - 'zip_path': path to ZIP with all figures
       - 'csv_path': path to CSV summary
     """
     train, test, models, tasks = _ensure_arrays(train_2d, test_2d, model_names, task_names)
@@ -203,56 +203,70 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
     
     print("   difficulty_means  ", difficulty_means)
     
-    plot_heatmap(np.array(difficulty_means), a_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfcly_group.png", jupyter_plot)
-    plot_heatmap(np.array(modality_means), b_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_mdlt_group.png", jupyter_plot)
+    plot_heatmap(np.array(difficulty_means), a_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfcly_group.pdf", jupyter_plot)
+    plot_heatmap(np.array(modality_means), b_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_mdlt_group.pdf", jupyter_plot)
     if jupyter_plot:
         ipt.show()
-    plot_heatmap(np.array(task_means), c_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_task_group.png", jupyter_plot)
+    else:
+        ipt.delete()
+    plot_heatmap(np.array(task_means), c_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_task_group.pdf", jupyter_plot)
     
-    plot_heatmap(np.hstack([np.array(task_means), np.array(modality_means)]), np.hstack([np.array(c_idxs), np.array(b_idxs)]), models, "Test Accuracy (%)", out_path / "heatmap_test_mdltandtask_group.png", jupyter_plot)
+    plot_heatmap(np.hstack([np.array(task_means), np.array(modality_means)]), np.hstack([np.array(c_idxs), np.array(b_idxs)]), models, "Test Accuracy (%)", out_path / "heatmap_test_mdltandtask_group.pdf", jupyter_plot)
     
-    plot_heatmap(np.array(diff_mod_means), d_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfclt_task_group.png", jupyter_plot)
+    plot_heatmap(np.array(diff_mod_means), d_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfclt_task_group.pdf", jupyter_plot)
     if jupyter_plot:
         ipt.show()
+    else:
+        ipt.delete()
 
     # Summary DataFrame
+
     cols = pd.MultiIndex.from_product([["Train", "Test"], tasks], names=["Split", "Task"])
-    df = pd.DataFrame(index=models, columns=cols, dtype=float)
-    for i, m in enumerate(models):
-        for j, t in enumerate(tasks):
-            df.loc[m, ("Train", t)] = float(train[i, j])
-            df.loc[m, ("Test", t)] = float(test[i, j])
+    data = np.concatenate([train, test], axis=1)  # (n_models, 2*n_tasks)
+    df = pd.DataFrame(data, index=models, columns=cols)
     csv_path = out_path / "summary_train_test.csv"
+
     df.to_csv(csv_path)
 
     # Heatmaps
-    plot_heatmap(train, tasks, models, "Train Accuracy (%)", out_path / "heatmap_train.png", jupyter_plot)
-    plot_heatmap(test, tasks, models, "Test Accuracy (%)", out_path / "heatmap_test.png", jupyter_plot)
-    # plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.png", jupyter_plot)
+    plot_heatmap(train, tasks, models, "Train Accuracy (%)", out_path / "heatmap_train.pdf", jupyter_plot)
+    plot_heatmap(test, tasks, models, "Test Accuracy (%)", out_path / "heatmap_test.pdf", jupyter_plot)
+    # plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.pdf", jupyter_plot)
     if jupyter_plot:
         ipt.show()
+    else:
+        ipt.delete()
+
     # Per-task grouped bars
     for j, t in enumerate(tasks):
-        plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.png", jupyter_plot)
+        plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.pdf", jupyter_plot)
         if jupyter_plot and j%4==3:
             ipt.show()
 
     if jupyter_plot:
         ipt.show()
+    else:
+        ipt.delete()
+
     # Per-model bars (test across tasks)
     for i, m in enumerate(models):
-        plot_bars_per_model(test[i, :], tasks, m, "Test Accuracy by Task", out_path / f"per_model_test_{i:02d}_{_safe_name(m)}.png", jupyter_plot)
+        plot_bars_per_model(test[i, :], tasks, m, "Test Accuracy by Task", out_path / f"per_model_test_{i:02d}_{_safe_name(m)}.pdf", jupyter_plot)
         if jupyter_plot and i%4==3:
             ipt.show()
+        else:
+            ipt.delete()
+
 
     if jupyter_plot:
         ipt.show()
     else:
+        ipt.delete()
+
         # ZIP
         zip_path = out_path.with_suffix(".zip")
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for png in sorted(out_path.glob("*.png")):
-                zf.write(png, arcname=png.name)
+            for pdf in sorted(out_path.glob("*.pdf")):
+                zf.write(pdf, arcname=pdf.name)
         return {"out_dir": str(out_path), "zip_path": str(zip_path), "csv_path": str(csv_path)}
 
 

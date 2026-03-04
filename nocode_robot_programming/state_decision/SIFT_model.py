@@ -66,6 +66,10 @@ class StateDeciderSIFT:  # Fits StateDeciderBase interface
     def __str__(self):
         return str(self.method)
 
+    @property
+    def short_name(self) -> str:
+        return self.__str__()
+
     def _prep(self, img: np.ndarray) -> np.ndarray:
         if img.ndim == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
