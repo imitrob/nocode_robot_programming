@@ -174,14 +174,18 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
     def load_deploy_from_task(self, task_name: str, e: int = 10) -> tuple[list[ImageDatasetView], ImageDatasetView]:
         """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. 
         
-            - Each dataset tuple includes a single DS, exception is the last that contains all images.
+            - datasets: Each dataset tuple includes a single DS
+            - all_images_dataset: contains all images.
+        
+        cluster decision states:
+        [{'start': 8, 'end': 18, 'relevant_parts': ['ttst_kin_test', 'ttst_kin_test_branch_from_0_at_8']}, # DS1
+          ... # DS2
+          ... # DS3
+        ]
+        
         """
 
-        # cluster decision states
-        # [{'start': 8, 'end': 18, 'relevant_parts': ['ttst_kin_test', 'ttst_kin_test_branch_from_0_at_8']}, # DS1
-        #   ... # DS2
-        #   ... # DS3
-        # ]
+        
         decision_states = cluster(self.tasks[task_name], e)
         if DEBUG: print("Decision states: ", decision_states)
 

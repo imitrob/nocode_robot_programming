@@ -299,9 +299,9 @@ def saved_img_processing_old(img):
     # img_tensor = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
     # return resize_transform(img_tensor) / 255.0
 
-def visualize_video_frame_with_text(image, text: str = "", color: tuple[int, int, int] = (0,0,255), press_for_next_frame: bool = False):
+def visualize_video_frame_with_text(image, text: str = "", color: tuple[int, int, int] = (0,0,255), press_for_next_frame: bool = False, resize=(64,64)):
     image = image.squeeze().astype(np.uint8)
-    image = cv2.resize(image, (64, 64), interpolation=cv2.INTER_AREA)
+    image = cv2.resize(image, resize, interpolation=cv2.INTER_AREA)
     
     cv2.putText(image, text, (0, 12), cv2.FONT_HERSHEY_SIMPLEX,
         0.5, color, 1, 2)
