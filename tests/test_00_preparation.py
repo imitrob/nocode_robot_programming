@@ -17,7 +17,7 @@ def test_import_modules2():
     from nocode_robot_programming.state_decision.SIFT_model import StateDeciderSIFT
     from nocode_robot_programming.state_decision.AEGP_model import AEGP
     from nocode_robot_programming.state_decision.state_decider import StateDeciderBase
-    from gesture_detector.utils import pretty_confusion_matrix
+    from nocode_robot_programming.state_decision.plots import pretty_confusion_matrix
     import torch
     import numpy as np
     import matplotlib.pyplot as plt
