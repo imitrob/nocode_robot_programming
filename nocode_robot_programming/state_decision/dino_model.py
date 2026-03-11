@@ -52,15 +52,15 @@ class DINOFeaturePresence:
                 """
                 out = model(pixel_values=pixel_values, bool_masked_pos=bool_masked_pos, return_dict=True)
 
-                x_norm = out.last_hidden_state  # (B, 1 + R + P, C) :contentReference[oaicite:2]{index=2}
+                x_norm = out.last_hidden_state  # (B, 1 + R + P, C)
                 R = int(getattr(model.config, "num_register_tokens", 0))
 
                 return {
                     "x_norm_clstoken": x_norm[:, 0],
                     "x_norm_regtokens": x_norm[:, 1 : 1 + R],
                     "x_norm_patchtokens": x_norm[:, 1 + R :],
-                    "x_prenorm": None,          # HF DINOv3 does not expose the pre-final-LN tokens like DINOv2 does :contentReference[oaicite:3]{index=3}
-                    "masks": bool_masked_pos,    # HF name for masked-patch positions :contentReference[oaicite:4]{index=4}
+                    "x_prenorm": None,          # HF DINOv3 does not expose the pre-final-LN tokens like DINOv2 does
+                    "masks": bool_masked_pos,    # HF name for masked-patch positions
                 }
             
             # bind to this specific model instance

@@ -424,9 +424,6 @@ def user_study_widget(lfd):
             matching_files_label.value = f"<b>No files found matching prefix {full_name}</b>"
 
 
-    # ------------------------------------------------
-    # Button callbacks
-    # ------------------------------------------------
     @single_run
     def on_record_clicked(_):
         task_name = build_task_name()
