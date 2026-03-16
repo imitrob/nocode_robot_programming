@@ -4,6 +4,9 @@ Conditional Incremental Programming with vision-based branching.
 
 You will need Franka Emika Panda Robot and robot-mounted RealSense Camera (you need to change device serial ID at `camera_launch.py`). Optionally, we use Logitech joystick (you need to change device path [here](nocode_robot_programming/joystick.py)) and optionally Leap Motion for hand gestures.
 
+Teaching probing task: Task-graph with three skill variants:
+<img src="./probing.gif" alt="Teaching_probing_task" />
+
 ## Installation:
 
 ```
