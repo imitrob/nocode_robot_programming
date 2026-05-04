@@ -403,13 +403,15 @@ def user_study_plot_hist(stats,
         y = p.get_height() - 3
 
         txt = f"{int(c)}\n"
+        # print(f"At {i=}: {groups[i]}")
         if print_examples > 0:
             examples = groups[i][:print_examples]
+            
             txt += ", ".join(examples)
         ax.text(x, y, txt, ha="center", va="bottom", fontsize=6, rotation=0)
 
     ax.set_xlabel("Accuracy")
-    ax.set_ylabel("Tasks")
+    ax.set_ylabel("Counts")
     ax.set_xticks(np.linspace(0, 1, 6))
     ax.set_xticklabels([f"{t:.0%}" for t in np.linspace(0, 1, 6)])
 
