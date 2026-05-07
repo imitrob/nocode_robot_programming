@@ -9,6 +9,10 @@ import cv2 as cv
 import trajectory_data
 from nocode_robot_programming.task_graph.task_graph import TaskGraph
 from nocode_robot_programming.state_decision.utils import Filename, saved_img_processing
+from nocode_robot_programming.state_decision_dataset_prepare.trajectory_criteria import (
+    filter_trajectory_files,
+    sync_trajectory_criteria,
+)
 from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gray_video_cuda_captions, show_gray_video_cuda_captions_aligned
 from IPython.display import display, HTML
 import re
@@ -65,17 +69,59 @@ class TrajectoryDataset(TaskGraph, Dataset):
                     'img_feedback_flag','spiral_flag','risk_flag',
                     'safe_flag','novel_risk_flag','novel_safe_flag','tag']
 
-    def __init__(self, package_path: str | None = None, keys=None, print_index: bool = False):
-        """ package_path (str) = custom trajectory package path
+    def __init__(
+        self,
+        package_path: str | None = None,
+        keys=None,
+        print_index: bool = False,
+        # Temporary CSV criteria gate for manually excluding bad/corrupted .npz files.
+        criteria_csv: str | os.PathLike | None = None,
+        sync_criteria_csv: bool = False,
+        require_criteria_rows: bool = False,
+        print_criteria_report: bool = False,
+    ):
+        """ package_path (str) = custom trajectory package path.
+
+        The criteria_csv* arguments are a temporary/manual dataset cleanup gate:
+        sync a CSV, mark use=0 for corrupted trajectories, and load only use=1 rows.
         """
         if package_path is None:
             self.dir = os.path.join(trajectory_data.package_path, "trajectories")
         else:
             self.dir = package_path
-            
+
         self.files = sorted(glob.glob(os.path.join(self.dir, "*.npz")))
         if not self.files:
             raise FileNotFoundError(f"No .npz files found in {self.dir}")
+
+        # === TEMPORARY CSV TRAJECTORY CRITERIA GATE: BEGIN ===
+        # Remove this block plus the criteria_csv* __init__ args/imports to return
+        # TrajectoryDataset to plain "load every .npz in self.dir" behavior.
+        self.criteria_csv = None
+        self.criteria_report = None
+        if criteria_csv is not None:
+            criteria_path = Path(criteria_csv)
+            if not criteria_path.is_absolute():
+                criteria_path = Path(self.dir) / criteria_path
+            self.criteria_csv = criteria_path
+            if sync_criteria_csv:
+                sync_trajectory_criteria(criteria_path, self.files)
+            elif not criteria_path.exists():
+                raise FileNotFoundError(
+                    f"Trajectory criteria file {criteria_path} does not exist. "
+                    "Pass sync_criteria_csv=True once to create it."
+                )
+            self.files, self.criteria_report = filter_trajectory_files(
+                self.files,
+                criteria_path,
+                require_rows=require_criteria_rows,
+            )
+            if not self.files:
+                raise ValueError(f"Trajectory criteria file {criteria_path} excluded every .npz file")
+            if print_criteria_report:
+                print(self.criteria_report)
+        # === TEMPORARY CSV TRAJECTORY CRITERIA GATE: END ===
+
         self.keys = keys or self.default_keys
 
         self._task_index = self._build_task_index()

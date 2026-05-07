@@ -56,6 +56,11 @@ unzip -q "$tmp/dataset.zip" -d "$tmp/extracted"
 cp -r "$tmp/extracted"/. "$dst"/
 ```
 
+`tests/03_dataset_eval.ipynb` uses `trajectory_criteria.csv` in the trajectories
+folder. The notebook creates/syncs this file with columns
+`filename,use,criterion,discard_reason`; set `use` to `0` for a corrupted
+trajectory.
+
 
 ## Notes:
 
