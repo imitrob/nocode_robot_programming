@@ -15,11 +15,19 @@ _TRUE_VALUES = {"1", "true", "yes", "y", "use", "keep", "load", "include"}
 _FALSE_VALUES = {"0", "false", "no", "n", "skip", "drop", "discard", "exclude"}
 
 
+def _parse_criteria(value: str) -> frozenset[str]:
+    return frozenset(tag.strip() for tag in value.split(",") if tag.strip())
+
+
+def _serialize_criteria(criteria: frozenset[str]) -> str:
+    return ",".join(sorted(criteria))
+
+
 @dataclass(frozen=True)
 class TrajectoryCriteriaDecision:
     filename: str
     use: bool
-    criterion: str = ""
+    criteria: frozenset[str] = frozenset()
     discard_reason: str = ""
 
 
@@ -46,7 +54,7 @@ class TrajectoryCriteriaReport:
             lines.append("  discarded files:")
             for decision in self.discarded:
                 reason = decision.discard_reason or "(no discard_reason)"
-                criterion = f" [{decision.criterion}]" if decision.criterion else ""
+                criterion = f" [{', '.join(sorted(decision.criteria))}]" if decision.criteria else ""
                 lines.append(f"    - {decision.filename}{criterion}: {reason}")
         return "\n".join(lines)
 
@@ -234,17 +242,18 @@ def set_trajectory_criteria(
     if missing:
         raise KeyError(f"Not present in {csv_path}: {missing[:10]}")
 
+    new_criteria = _parse_criteria(criterion) if isinstance(criterion, str) else frozenset(criterion)
     rows = []
     for filename, decision in decisions.items():
         row = {
             "filename": filename,
             "use": "1" if decision.use else "0",
-            "criterion": decision.criterion,
+            "criterion": _serialize_criteria(decision.criteria),
             "discard_reason": decision.discard_reason,
         }
         if filename in selected:
             row["use"] = "1" if use else "0"
-            row["criterion"] = "" if use else criterion
+            row["criterion"] = "" if use else _serialize_criteria(new_criteria)
             row["discard_reason"] = "" if use else discard_reason
         rows.append(row)
 
@@ -326,7 +335,7 @@ def criteria_status(
         {
             "filename": filename,
             "use": int(decisions[filename].use),
-            "criterion": decisions[filename].criterion,
+            "criteria": sorted(decisions[filename].criteria),
             "discard_reason": decisions[filename].discard_reason,
         }
         for filename in resolve_trajectory_criteria_filenames(
@@ -368,7 +377,7 @@ def load_trajectory_criteria(path: str | Path) -> dict[str, TrajectoryCriteriaDe
             decisions[filename] = TrajectoryCriteriaDecision(
                 filename=filename,
                 use=parse_use_value(row.get("use", "")),
-                criterion=(row.get("criterion") or "").strip(),
+                criteria=_parse_criteria(row.get("criterion") or ""),
                 discard_reason=(row.get("discard_reason") or "").strip(),
             )
     return decisions
@@ -396,7 +405,7 @@ def sync_trajectory_criteria(path: str | Path, trajectory_files: Iterable[str | 
             {
                 "filename": filename,
                 "use": "1" if decision.use else "0",
-                "criterion": decision.criterion,
+                "criterion": _serialize_criteria(decision.criteria),
                 "discard_reason": decision.discard_reason,
             }
         )
@@ -414,6 +423,7 @@ def filter_trajectory_files(
     criteria_path: str | Path,
     *,
     require_rows: bool = False,
+    discard_criteria: frozenset[str] | set[str] | None = None,
 ) -> tuple[list[str], TrajectoryCriteriaReport]:
     files = sorted(str(file) for file in trajectory_files)
     filenames = {normalize_trajectory_filename(file) for file in files}
@@ -432,10 +442,10 @@ def filter_trajectory_files(
     for file in files:
         filename = normalize_trajectory_filename(file)
         decision = decisions.get(filename)
-        if decision is None or decision.use:
-            included_files.append(file)
-        else:
+        if discard_criteria and decision is not None and decision.criteria & discard_criteria:
             discarded.append(decision)
+        else:
+            included_files.append(file)
 
     report = TrajectoryCriteriaReport(
         path=Path(criteria_path),

@@ -143,13 +143,13 @@ def test_discard_include_and_status_edit_criteria_csv(tmp_path):
         {
             "filename": "jan_kin_probe_branch_from_0_at_13.npz",
             "use": 0,
-            "criterion": "manual_quality_check",
+            "criteria": ["manual_quality_check"],
             "discard_reason": "bad video",
         },
         {
             "filename": "jan_kin_probe_branch_from_0_at_13_trial_0.npz",
             "use": 0,
-            "criterion": "manual_quality_check",
+            "criteria": ["manual_quality_check"],
             "discard_reason": "bad video",
         },
     ]
@@ -205,7 +205,7 @@ def test_filter_trajectory_files_discards_rows_marked_false(tmp_path):
 
     assert included == [str(keep_file)]
     assert [decision.filename for decision in report.discarded] == ["jan_kin_probe_trial_0.npz"]
-    assert report.discarded[0].criterion == "manual_quality_check"
+    assert report.discarded[0].criteria == frozenset({"manual_quality_check"})
     assert report.discarded[0].discard_reason == "empty recording"
 
 
