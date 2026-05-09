@@ -39,6 +39,7 @@ class TrajectoryCriteriaReport:
     discarded: tuple[TrajectoryCriteriaDecision, ...]
     missing_rows: tuple[str, ...]
     stale_rows: tuple[str, ...]
+    forced_roots: tuple[str, ...] = ()
 
     def __str__(self) -> str:
         lines = [
@@ -50,6 +51,10 @@ class TrajectoryCriteriaReport:
             lines.append(f"  missing CSV rows, included by default: {len(self.missing_rows)}")
         if self.stale_rows:
             lines.append(f"  stale CSV rows without .npz file: {len(self.stale_rows)}")
+        if self.forced_roots:
+            lines.append(f"  force-included roots (branches selected, root criteria excluded): {len(self.forced_roots)}")
+            for name in self.forced_roots:
+                lines.append(f"    - {name}")
         if self.discarded:
             lines.append("  discarded files:")
             for decision in self.discarded:
@@ -423,7 +428,7 @@ def filter_trajectory_files(
     criteria_path: str | Path,
     *,
     require_rows: bool = False,
-    discard_criteria: frozenset[str] | set[str] | None = None,
+    use_criteria: frozenset[str] | set[str] | None = None,
 ) -> tuple[list[str], TrajectoryCriteriaReport]:
     files = sorted(str(file) for file in trajectory_files)
     filenames = {normalize_trajectory_filename(file) for file in files}
@@ -442,10 +447,33 @@ def filter_trajectory_files(
     for file in files:
         filename = normalize_trajectory_filename(file)
         decision = decisions.get(filename)
-        if discard_criteria and decision is not None and decision.criteria & discard_criteria:
-            discarded.append(decision)
-        else:
+        if decision is None or use_criteria is None:
             included_files.append(file)
+        else:
+            # "" is a sentinel for normal (unmarked) files; map empty criteria to {""}
+            effective = decision.criteria if decision.criteria else frozenset([""])
+            if effective & use_criteria:
+                included_files.append(file)
+            else:
+                discarded.append(decision)
+
+    # Structural integrity: clustering requires the root demo (no _branch_ in name) to be
+    # present whenever any of its branches are included. Force-include excluded roots.
+    all_files_map = {normalize_trajectory_filename(f): f for f in files}
+    included_set = {normalize_trajectory_filename(f) for f in included_files}
+    forced_roots: list[str] = []
+    for fname in list(included_set):
+        if "_branch_" not in fname:
+            continue
+        root_fname = fname.split("_branch_")[0] + ".npz"
+        if root_fname in included_set or root_fname not in all_files_map:
+            continue
+        included_files.append(all_files_map[root_fname])
+        included_set.add(root_fname)
+        discarded = [d for d in discarded if normalize_trajectory_filename(d.filename) != root_fname]
+        forced_roots.append(root_fname)
+
+    included_files = sorted(included_files)
 
     report = TrajectoryCriteriaReport(
         path=Path(criteria_path),
@@ -454,5 +482,6 @@ def filter_trajectory_files(
         discarded=tuple(discarded),
         missing_rows=missing_rows,
         stale_rows=stale_rows,
+        forced_roots=tuple(sorted(forced_roots)),
     )
     return included_files, report

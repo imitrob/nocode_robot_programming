@@ -103,7 +103,7 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
     # def load_anom(self, task_name: str, e: int = 10) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     #     return load_eval(self, task_name, e, anomaly=True)
 
-    def load_eval_from_task(self, task_name: str, e: int = 10, anomaly: bool = False, max_classes: int | None = None) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
+    def load_eval_from_task(self, task_name: str, e: int = 10, anomaly: bool = False, max_classes: int | None = None, add_to_train: list[int] = []) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
         """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. """
         decision_states = cluster(self.tasks[task_name], e)
         if DEBUG: print("Decision states: ", decision_states)
@@ -153,6 +153,23 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
                 train_file_names = list(set(new_train_file_names))
                 test_file_names = list(set(new_test_file_names))
 
+
+            # print("before: ")
+            # print(train_file_names)
+            # print(test_file_names)
+            for cls_idx in add_to_train:
+                if cls_idx >= len(ds['relevant_parts']):
+                    continue
+                part = ds['relevant_parts'][cls_idx]
+                match = next((n for n in test_file_names if Filename(n).part_name == part), None)
+                if match is not None:
+                    test_file_names.remove(match)
+                    train_file_names.append(match)
+            # print("after: ")
+            # print(train_file_names)
+            # print(test_file_names)
+            # print()
+            
             d_train = self.get_auto_dataset_view(relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=train_file_names, anomaly=anomaly)
             d_test = self.get_auto_dataset_view(relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=test_file_names, anomaly=anomaly)
             

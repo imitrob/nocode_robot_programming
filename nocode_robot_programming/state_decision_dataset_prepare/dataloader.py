@@ -79,7 +79,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
         sync_criteria_csv: bool = False,
         require_criteria_rows: bool = False,
         print_criteria_report: bool = False,
-        discard_criteria: frozenset[str] | set[str] | None = None,
+        use_criteria: frozenset[str] | set[str] | None = None,
     ):
         """ package_path (str) = custom trajectory package path.
 
@@ -116,7 +116,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
                 self.files,
                 criteria_path,
                 require_rows=require_criteria_rows,
-                discard_criteria=discard_criteria,
+                use_criteria=use_criteria,
             )
             if not self.files:
                 raise ValueError(f"Trajectory criteria file {criteria_path} excluded every .npz file")

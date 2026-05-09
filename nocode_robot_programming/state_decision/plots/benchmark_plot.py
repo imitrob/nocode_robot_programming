@@ -238,15 +238,14 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
         ipt.delete()
 
     # Per-task grouped bars
-    for j, t in enumerate(tasks):
-        plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.pdf", jupyter_plot)
-        if jupyter_plot and j%4==3:
-            ipt.show()
-
-    if jupyter_plot:
-        ipt.show()
-    else:
-        ipt.delete()
+    # for j, t in enumerate(tasks):
+    #     plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.pdf", jupyter_plot)
+    #     if jupyter_plot and j%4==3:
+    #         ipt.show()
+    # if jupyter_plot:
+    #     ipt.show()
+    # else:
+    #     ipt.delete()
 
     # Per-model bars (test across tasks)
     for i, m in enumerate(models):

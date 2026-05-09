@@ -449,6 +449,66 @@ def user_study_plot_hist(stats,
     plt.show()
 
 
+def user_study_plot_hist_grouped(
+    grouped_stats,
+    brackets=[[0.3, 0.7, "Camera doesn't see\ndiscriminated location.", 0.3]],
+    savename: str = "sns_hist_grouped.pdf",
+    print_howmany_over_90: bool = True,
+    bins: int = 21,
+    folder: str = "plot",
+    colors: list | None = None,
+):
+    """Stacked histogram comparing multiple dataset groups with different bar colors.
+
+    grouped_stats: {group_name: {task_name: accuracy}}
+    """
+    _default_colors = ["#00e676", "#e74c3c", "#3498db", "#e67e22", "#9b59b6", "#1abc9c"]
+    if colors is None:
+        colors = _default_colors[:len(grouped_stats)]
+
+    bins_arr = np.linspace(0, 1, bins)
+    vals_list, labels = [], []
+    for group_name, stats_group in grouped_stats.items():
+        vals = np.array(list(stats_group.values()), dtype=float)
+        if len(vals) and vals.max() > 1.5:
+            vals /= 100.0
+        vals_list.append(vals)
+        labels.append(f"{group_name} (n={len(vals)})")
+
+    fig, ax = plt.subplots(figsize=(4, 2.5))
+    ax.hist(vals_list, bins=bins_arr, stacked=True, label=labels,
+            color=colors, edgecolor="black", linewidth=0.4)
+    ax.legend(fontsize=6, loc="lower left")
+    ax.set_xlabel("Accuracy")
+    ax.set_ylabel("Counts")
+    ax.set_xticks(np.linspace(0, 1, 6))
+    ax.set_xticklabels([f"{t:.0%}" for t in np.linspace(0, 1, 6)])
+
+    def bracket(ax, x1, x2, text, y_ax):
+        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+        ax.plot([x1, x2], [y_ax, y_ax], transform=trans, clip_on=False)
+        ax.plot([x1, x1], [y_ax - 0.03, y_ax], transform=trans, clip_on=False)
+        ax.plot([x2, x2], [y_ax - 0.03, y_ax], transform=trans, clip_on=False)
+        ax.text((x1 + x2) / 2, y_ax + 0.02, text, ha="center", va="bottom", transform=trans)
+
+    for b in brackets:
+        bracket(ax, b[0], b[1], b[2], b[3])
+
+    if print_howmany_over_90:
+        lines = []
+        for group_name, vals in zip(grouped_stats.keys(), vals_list):
+            if len(vals):
+                lines.append(f"{group_name}: {(vals > 0.899).sum()}/{len(vals)} >90%")
+        ax.text(0.03, 0.95, "\n".join(lines), transform=ax.transAxes,
+                ha="left", va="top", fontsize=5)
+
+    plt.tight_layout()
+    from pathlib import Path
+    Path(f"auto_fig_generator/{folder}/").mkdir(parents=True, exist_ok=True)
+    plt.savefig(Path(f"auto_fig_generator/{folder}/") / savename)
+    plt.show()
+
+
 def set_seed(seed: int = 48):
     random.seed(seed)
     np.random.seed(seed)
