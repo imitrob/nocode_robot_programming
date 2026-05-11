@@ -462,6 +462,7 @@ def user_study_plot_hist_grouped(
 
     grouped_stats: {group_name: {task_name: accuracy}}
     """
+    print("grouped_stats keys: ", grouped_stats.keys())
     _default_colors = ["#00e676", "#e74c3c", "#3498db", "#e67e22", "#9b59b6", "#1abc9c"]
     if colors is None:
         colors = _default_colors[:len(grouped_stats)]
