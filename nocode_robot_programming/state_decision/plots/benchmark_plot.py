@@ -82,7 +82,7 @@ def plot_heatmap(matrix: np.ndarray, x_labels: List[str], y_labels: List[str], t
                 v = matrix[i, j]
                 brightness = (grad[i, j * N + N // 2] - vmin) / max(vmax - vmin, 1e-9)
                 color = "white" if brightness < 0.55 else "black"
-                ax.text(j, i, f"{v[0]:.1f} /\n {v[1]:.1f} /\n {v[2]:.1f}",
+                ax.text(j, i, " /\n ".join(f"{x:.1f}" for x in v),
                         ha="center", va="center", fontsize=6, color=color)
     else:
         ax.imshow(matrix, aspect="auto")
@@ -339,8 +339,8 @@ def _ensure_arrays_3d(train_3d, test_3d, model_names, task_names):
         raise ValueError(f"Train/test shapes differ: {train.shape} vs {test.shape}")
     if train.ndim != 3:
         raise ValueError(f"Expected 3-D arrays (models, tasks, insertions). Got ndim={train.ndim}")
-    if train.shape[2] != 3:
-        raise ValueError(f"Expected last dimension == 3 (insertion levels). Got {train.shape[2]}")
+    if not (1 <= train.shape[2] <= 3):
+        raise ValueError(f"Expected last dimension between 1 and 3 (insertion levels). Got {train.shape[2]}")
 
     m, n, _ = train.shape
     if len(models) == m and len(tasks) == n:
@@ -363,7 +363,7 @@ def _group_means_3d(data_3d: np.ndarray, group: List[str]):
     result = []
     for model_vals in data_3d:  # (n_tasks, 3)
         per_ins = []
-        for ins in range(3):
+        for ins in range(data_3d.shape[2]):
             g_ = pd.Series(model_vals[:, ins]).groupby(group).mean()
             if group_labels is None:
                 group_labels = g_.index.to_list()

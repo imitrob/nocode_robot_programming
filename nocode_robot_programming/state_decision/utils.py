@@ -463,7 +463,11 @@ def user_study_plot_hist_grouped(
     grouped_stats: {group_name: {task_name: accuracy}}
     """
     print("grouped_stats keys: ", grouped_stats.keys())
-    _default_colors = ["#00e676", "#e74c3c", "#3498db", "#e67e22", "#9b59b6", "#1abc9c"]
+    _default_colors = [
+        "#00e676", "#e74c3c", "#3498db", "#e67e22", "#9b59b6", "#1abc9c",
+        "#f39c12", "#2ecc71", "#e91e63", "#00bcd4", "#8bc34a", "#ff5722",
+        "#607d8b", "#795548", "#673ab7", "#009688",
+    ]
     if colors is None:
         colors = _default_colors[:len(grouped_stats)]
 
@@ -479,7 +483,7 @@ def user_study_plot_hist_grouped(
     fig, ax = plt.subplots(figsize=(4, 2.5))
     ax.hist(vals_list, bins=bins_arr, stacked=True, label=labels,
             color=colors, edgecolor="black", linewidth=0.4)
-    ax.legend(fontsize=6, loc="lower left")
+    ax.legend(fontsize=6, loc="upper left")
     ax.set_xlabel("Accuracy")
     ax.set_ylabel("Counts")
     ax.set_xticks(np.linspace(0, 1, 6))
@@ -500,7 +504,7 @@ def user_study_plot_hist_grouped(
         for group_name, vals in zip(grouped_stats.keys(), vals_list):
             if len(vals):
                 lines.append(f"{group_name}: {(vals > 0.899).sum()}/{len(vals)} >90%")
-        ax.text(0.03, 0.95, "\n".join(lines), transform=ax.transAxes,
+        ax.text(0.03, 0.5, "\n".join(lines), transform=ax.transAxes,
                 ha="left", va="top", fontsize=5)
 
     plt.tight_layout()
