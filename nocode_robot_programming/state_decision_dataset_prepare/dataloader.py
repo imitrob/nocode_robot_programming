@@ -76,7 +76,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
         print_index: bool = False,
         # Temporary CSV criteria gate for manually excluding bad/corrupted .npz files.
         criteria_csv: str | os.PathLike | None = None,
-        sync_criteria_csv: bool = False,
+        sync_criteria_csv: bool = True, # slows down
         require_criteria_rows: bool = False,
         print_criteria_report: bool = False,
         use_criteria: frozenset[str] | set[str] | None = None,

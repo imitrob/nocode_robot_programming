@@ -368,92 +368,15 @@ def y_cls_to_nice_name(y_cls):
     return name
 
 
+_default_colors = [
+    "#00e676", "#e74c3c", "#3498db", "#e67e22", "#9b59b6", "#1abc9c",
+    "#f39c12", "#2ecc71", "#e91e63", "#00bcd4", "#8bc34a", "#ff5722",
+    "#607d8b", "#795548", "#673ab7", "#009688",
+]
 
-def user_study_plot_hist(stats, 
-                         brackets = [[0.3, 0.7, "Camera doesn't see\ndiscriminated location.", 0.3]],
-                         savename: str = "sns_hist_2.pdf",
-                         print_examples: int = 0,
-                         print_howmany_over_90: bool = True,
-                         bins: int = 21,
-                         folder: str = "plot", 
-                        ):
-
-    keys = list(stats.keys())
-    vals = np.array(list(stats.values()), dtype=float)
-    if vals.max() > 1.5:  # if you stored 90 instead of 0.90
-        vals = vals / 100.0
-
-    bins = np.linspace(0, 1, bins)          # 10 bins from 0%..100%
-    
-    fig, ax = plt.subplots(figsize=(4, 2))
-    counts, edges, patches = ax.hist(vals, bins=bins, edgecolor="black")
-
-    # group keys by bin
-    idx = np.digitize(vals, edges) - 1
-    idx[idx == len(edges) - 1] = len(edges) - 2  # right-edge fix
-    groups = [[] for _ in range(len(edges) - 1)]
-    for k, i in zip(keys, idx):
-        groups[i].append(k)
-
-    # annotate each bar with count + example key(s)
-    for i, (c, p) in enumerate(zip(counts, patches)):
-        if c == 0:
-            continue
-        x = p.get_x() + p.get_width() / 2
-        y = p.get_height() - 3
-
-        txt = f"{int(c)}\n"
-        # print(f"At {i=}: {groups[i]}")
-        if print_examples > 0:
-            examples = groups[i][:print_examples]
-            
-            txt += ", ".join(examples)
-        ax.text(x, y, txt, ha="center", va="bottom", fontsize=6, rotation=0)
-
-    ax.set_xlabel("Accuracy")
-    ax.set_ylabel("Counts")
-    ax.set_xticks(np.linspace(0, 1, 6))
-    ax.set_xticklabels([f"{t:.0%}" for t in np.linspace(0, 1, 6)])
-
-    def bracket(ax, x1, x2, text, y_ax):
-        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-
-        # horizontal line
-        ax.plot([x1, x2], [y_ax, y_ax], transform=trans, clip_on=False)
-        # vertical ticks
-        ax.plot([x1, x1], [y_ax-0.03, y_ax], transform=trans, clip_on=False)
-        ax.plot([x2, x2], [y_ax-0.03, y_ax], transform=trans, clip_on=False)
-
-        # text
-        ax.text((x1+x2)/2, y_ax+0.02, text,
-                ha="center", va="bottom", transform=trans)
-
-    for b in brackets:
-        bracket(ax, b[0], b[1], b[2], b[3])
-
-    if print_howmany_over_90:
-        n_over_90 = (vals > 0.899).sum()
-        n_under_80 = (vals < 0.799).sum()
-        ax.text(0.03, 0.95,
-                f"> 90%: {n_over_90}/{len(vals)}\n< 80%: {n_under_80}/{len(vals)}",
-                transform=ax.transAxes,
-                ha="left", va="top")
-
-    plt.tight_layout()
-    from pathlib import Path
-
-    p = Path(f"auto_fig_generator/{folder}/")
-    p.mkdir(parents=True, exist_ok=True)
-
-    plt.savefig(Path(f"auto_fig_generator/{folder}/") / savename)
-    plt.show()
-
-
-def user_study_plot_hist_grouped(
+def user_study_plot_hist(
     grouped_stats,
-    brackets=[[0.3, 0.7, "Camera doesn't see\ndiscriminated location.", 0.3]],
     savename: str = "sns_hist_grouped.pdf",
-    print_howmany_over_90: bool = True,
     bins: int = 21,
     folder: str = "plot",
     colors: list | None = None,
@@ -462,12 +385,6 @@ def user_study_plot_hist_grouped(
 
     grouped_stats: {group_name: {task_name: accuracy}}
     """
-    print("grouped_stats keys: ", grouped_stats.keys())
-    _default_colors = [
-        "#00e676", "#e74c3c", "#3498db", "#e67e22", "#9b59b6", "#1abc9c",
-        "#f39c12", "#2ecc71", "#e91e63", "#00bcd4", "#8bc34a", "#ff5722",
-        "#607d8b", "#795548", "#673ab7", "#009688",
-    ]
     if colors is None:
         colors = _default_colors[:len(grouped_stats)]
 
@@ -478,34 +395,30 @@ def user_study_plot_hist_grouped(
         if len(vals) and vals.max() > 1.5:
             vals /= 100.0
         vals_list.append(vals)
-        labels.append(f"{group_name} (n={len(vals)})")
+        labels.append(f"{group_name} (n={len(vals)}) {(vals > 0.899).sum()}/n>90%")
 
     fig, ax = plt.subplots(figsize=(4, 2.5))
-    ax.hist(vals_list, bins=bins_arr, stacked=True, label=labels,
+    *_, patches = ax.hist(vals_list, bins=bins_arr, stacked=True, label=labels,
             color=colors, edgecolor="black", linewidth=0.4)
-    ax.legend(fontsize=6, loc="upper left")
+    
+    # annotate each bin with total stacked count
+    containers = patches if isinstance(patches, list) else [patches]
+    for j in range(len(containers[0])):
+        top_patch = containers[-1][j]
+        total = int(top_patch.get_y() + top_patch.get_height())
+        if total == 0:
+            continue
+        x = top_patch.get_x() + top_patch.get_width() / 2
+        y = top_patch.get_y() + top_patch.get_height()
+        ax.text(x, y, f"{total}\n", ha="center", va="bottom", fontsize=8, rotation=0)
+
+    ax.set_axisbelow(True)
+    ax.grid()
+    ax.legend(fontsize=8, loc="upper left")
     ax.set_xlabel("Accuracy")
     ax.set_ylabel("Counts")
     ax.set_xticks(np.linspace(0, 1, 6))
     ax.set_xticklabels([f"{t:.0%}" for t in np.linspace(0, 1, 6)])
-
-    def bracket(ax, x1, x2, text, y_ax):
-        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-        ax.plot([x1, x2], [y_ax, y_ax], transform=trans, clip_on=False)
-        ax.plot([x1, x1], [y_ax - 0.03, y_ax], transform=trans, clip_on=False)
-        ax.plot([x2, x2], [y_ax - 0.03, y_ax], transform=trans, clip_on=False)
-        ax.text((x1 + x2) / 2, y_ax + 0.02, text, ha="center", va="bottom", transform=trans)
-
-    for b in brackets:
-        bracket(ax, b[0], b[1], b[2], b[3])
-
-    if print_howmany_over_90:
-        lines = []
-        for group_name, vals in zip(grouped_stats.keys(), vals_list):
-            if len(vals):
-                lines.append(f"{group_name}: {(vals > 0.899).sum()}/{len(vals)} >90%")
-        ax.text(0.03, 0.5, "\n".join(lines), transform=ax.transAxes,
-                ha="left", va="top", fontsize=5)
 
     plt.tight_layout()
     from pathlib import Path
