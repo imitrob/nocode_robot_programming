@@ -595,7 +595,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
         return warnings
 
 class ImageDatasetView(Dataset):
-    def __init__(self, X, Xt, y_int, y_names, y_cls):
+    def __init__(self, X, Xt, y_int, y_names, y_cls, y_file=None):
         super(ImageDatasetView, self).__init__()
         assert X.ndim == 3 and Xt.ndim == 1 and y_int.ndim == 1
         self.X = X.cuda() # X.shape = (samples, width, height)
@@ -603,6 +603,7 @@ class ImageDatasetView(Dataset):
         self.y_int = y_int.cuda() # y_int.shape = (samples, )
         self.y_names = y_names # len(y_names) = samples
         self.y_cls = y_cls # len(y_cls) = "number of skill variants - files"
+        self.y_file = y_file # list[str] len=samples, source file name per frame
     
     def timestep_range(self) -> dict[str, int | float]:
         """ gets timestep range of used dataset view images """
@@ -668,15 +669,20 @@ class ImageDatasetView(Dataset):
             captions.append(f"y={i},{name}")
         display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=captions, caption_fontsize=10))
 
-    def showcase_aligned(self, fps: int = 20, scale: int = 5):
+    def showcase_aligned(self, fps: int = 20, scale: int = 5, caption="label"):
         captions = []
-        for i,name in zip(self.y_int, self.y_names):
-            captions.append(f"y={i},{name}")
+        for j, (i, name) in enumerate(zip(self.y_int, self.y_names)):
+            file_tag = self.y_file[j] if self.y_file else name
+            if caption == "label":
+                captions.append(f"y={i},{name}")
+            elif caption == "file":
+                captions.append(file_tag)
+            else: raise Exception("caption not valid")
         display(show_gray_video_cuda_captions_aligned(
             self.X,
             fps=fps,
             scale=scale,
             captions=captions,
             Xt=self.Xt, # shape [T], ints
-            max_rows=10
+            max_rows=14
         ))

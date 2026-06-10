@@ -7,6 +7,11 @@ import torch, torchvision
 from matplotlib.colors import ListedColormap, BoundaryNorm
 import cv2
 import matplotlib.pyplot as plt
+plt.rcParams["pdf.fonttype"] = 42
+plt.rcParams["ps.fonttype"] = 42
+plt.rcParams["text.usetex"] = False
+plt.rcParams["font.family"] = "sans-serif"
+plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
 import matplotlib.transforms as transforms
 import random
 
