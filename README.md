@@ -40,7 +40,7 @@ code src/
 1. [Preparation notebook](tests/00_robot_check.ipynb): See the robot & gripper moving
 2. [Teaching and Execution](tests/01_user_study.ipynb): User-study dashboard
 3. [Dataset check](tests/02_dataset_check.ipynb): See collected dataset as train/test sets
-4. [Evaluation](tests/03_dataset_eval.ipynb) of collected data
+4. [Evaluation](tests/03_evaluation.ipynb) of collected data
 
 ## Datasets
 
