@@ -141,9 +141,10 @@ class DINOFeaturePresence:
             self.thresholds = torch.tensor(thresholds, device=self.device)
 
     @torch.inference_mode()
-    def predict(self, image: torch.Tensor) -> str:
+    def predict(self, image: torch.Tensor, x_t = None) -> str:
         """
         image: [H, W] float32 in [0,1]
+        x_t: timesteps - not used here, used in manual branching
         returns: predicted class name (or 'anomaly' if gated)
         """
         assert self.prototypes is not None, "Call train() first"

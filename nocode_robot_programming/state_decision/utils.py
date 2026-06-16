@@ -307,10 +307,10 @@ def visualize_video_frame_with_text(image, text: str = "", color: tuple[int, int
         0.5, color, 1, 2)
     
     cv2.namedWindow("Image", cv2.WINDOW_NORMAL)
-    cv2.moveWindow("Image",3700,0)
     cv2.resizeWindow("Image", 640, 640)
     zoomed_image = cv2.resize(image, (640, 640), interpolation=cv2.INTER_NEAREST)
     cv2.imshow("Image", zoomed_image)
+    cv2.moveWindow("Image", 1280, 116)  # left monitor (HDMI-0) starts at x=0, y=116
 
     if press_for_next_frame:
         cv2.waitKey(0)  # Wait for a key press to close the window

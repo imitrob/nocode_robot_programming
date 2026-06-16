@@ -468,6 +468,7 @@ def user_study_widget(lfd):
                 delattr(lfd, "_exec_plot_state")
             for k in exec_history:
                 exec_history[k].clear()
+            branch_to_int._mapping = {}
 
             lfd.execution_plot_out = plot_out
             lfd.ui_progress_callback = ui_progress_callback
@@ -551,16 +552,16 @@ def _apply_yticks_and_margin(ax):
     if not mapping:
         return 0
     items = sorted(mapping.items(), key=lambda kv: kv[1])  # (name, id)
-    labels = [_short_label(k, 18) for k, _ in items]
+    labels = [_short_label(k, 40) for k, _ in items]
     ids = [v for _, v in items]
 
     ax.set_yticks(ids)
     ax.set_yticklabels(labels)
-    ax.tick_params(axis="y", labelsize=7, pad=2)
+    ax.tick_params(axis="y", labelsize=6, pad=2)
     ax.tick_params(axis="x", labelsize=7)
 
     maxlen = max((len(l) for l in labels), default=0)
-    left = min(0.32, 0.10 + 0.010 * maxlen)
+    left = min(0.55, 0.06 + 0.013 * maxlen)
     ax.set_position([left, 0.26, 0.98 - left, 0.70])
     return len(items)
 
@@ -634,9 +635,8 @@ def ui_progress_callback(lfd, step, fps, curr_branch, target_state, suggested_br
     init_exec_plot_fast(lfd)
     st = lfd._exec_plot_state
 
-    # Update mapping so y-ticks include any branches that appear
+    # Only add actually-executed branches to the y-axis mapping
     curr_id = branch_to_int(curr_branch)
-    _ = branch_to_int(suggested_branch)  # for tick labels only, not plotted
 
     # --- global step reconstruction: when step goes backwards, add offset ---
     if st["prev_raw_step"] is None:
