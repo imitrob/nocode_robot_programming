@@ -44,7 +44,7 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
             2. Mask only a portion of the samples
             3. Returns as a ImageDatasetView object
         """
-        X_parts, Xt_parts, y_int_parts, y_name_parts = [], [], [], []
+        X_parts, Xt_parts, y_int_parts, y_name_parts, y_file_parts = [], [], [], [], []
 
         start = at.start if at.start is not None else -float("inf")
         stop  = at.stop  if at.stop  is not None else  float("inf")
@@ -83,11 +83,13 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
 
                 y_int_sub   = torch.full((imgs_sub.shape[0],), i, dtype=torch.int)
                 y_names_sub = [label_name] * imgs_sub.shape[0]
+                y_file_sub  = [file] * imgs_sub.shape[0]
 
                 X_parts.append(imgs_sub)
                 Xt_parts.append(xt_sub)
                 y_int_parts.append(y_int_sub)
                 y_name_parts.extend(y_names_sub)
+                y_file_parts.extend(y_file_sub)
 
         if len(X_parts) == 0:
             return None
@@ -96,14 +98,15 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
         Xt = torch.cat(Xt_parts, dim=0)            # (total_samples,)
         y_int = torch.cat(y_int_parts, dim=0)      # (total_samples,)
         y_names = y_name_parts
+        y_file = y_file_parts
 
-        return ImageDatasetView(X=X, Xt=Xt, y_int=y_int, y_names=y_names, y_cls=relevant_parts)
+        return ImageDatasetView(X=X, Xt=Xt, y_int=y_int, y_names=y_names, y_cls=relevant_parts, y_file=y_file)
 
 
     # def load_anom(self, task_name: str, e: int = 10) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
     #     return load_eval(self, task_name, e, anomaly=True)
 
-    def load_eval_from_task(self, task_name: str, e: int = 10, anomaly: bool = False, max_classes: int | None = None) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
+    def load_eval_from_task(self, task_name: str, e: int = 10, anomaly: bool = False, max_classes: int | None = None, add_to_train: list[int] = []) -> List[Tuple[ImageDatasetView, ImageDatasetView, str]]:
         """ Returns list of dataset tuples, each tuple has train dataset, test dataset and text description. """
         decision_states = cluster(self.tasks[task_name], e)
         if DEBUG: print("Decision states: ", decision_states)
@@ -153,6 +156,24 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
                 train_file_names = list(set(new_train_file_names))
                 test_file_names = list(set(new_test_file_names))
 
+
+            # print("before: ")
+            # print(train_file_names)
+            # print(test_file_names)
+            for cls_idx in add_to_train:
+                if cls_idx >= len(ds['relevant_parts']):
+                    continue
+                part = ds['relevant_parts'][cls_idx]
+                match = next((n for n in test_file_names if Filename(n).part_name == part), None)
+                if match is not None:
+                    test_file_names.remove(match)
+                    train_file_names.append(match)
+            # print("after: ")
+            # print("train and test files:")
+            # print(train_file_names)
+            # print(test_file_names)
+            # print()
+            
             d_train = self.get_auto_dataset_view(relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=train_file_names, anomaly=anomaly)
             d_test = self.get_auto_dataset_view(relevant_parts=ds['relevant_parts'], at=slice(ds['start'], ds['end']), file_names=test_file_names, anomaly=anomaly)
             

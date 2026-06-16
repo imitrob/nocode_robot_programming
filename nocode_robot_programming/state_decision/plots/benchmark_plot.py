@@ -55,20 +55,48 @@ def _safe_name(s: str) -> str:
 
 
 def plot_heatmap(matrix: np.ndarray, x_labels: List[str], y_labels: List[str], title: str, save_path: Path, jupyter_plot: bool):
-    fig = plt.figure(figsize=(max(6, len(x_labels)*0.8), max(4.5, len(y_labels)*0.6)))
+    """Plot a heatmap. matrix can be 2-D (n_models, n_tasks) or 3-D (n_models, n_tasks, 3).
+    In the 3-D case each cell has a left-to-right gradient from v[0] to max(v) and shows
+    'no-inj / 1-traj / 2-traj' values as text."""
+    n_rows, n_cols = matrix.shape[:2]
+    fig = plt.figure(figsize=(max(6, n_cols * 0.8), max(4.5, n_rows * (1.6 if matrix.ndim == 3 else 0.6))))
     ax = fig.add_subplot(111)
-    im = ax.imshow(matrix, aspect="auto")
-    ax.set_xticks(np.arange(len(x_labels)))
-    ax.set_yticks(np.arange(len(y_labels)))
+
+    if matrix.ndim == 3:
+        # Build a high-resolution gradient image: each cell gets N horizontal pixels.
+        N = 60
+        vmin, vmax = matrix.min(), matrix.max()
+        grad = np.zeros((n_rows, n_cols * N))
+        for i in range(n_rows):
+            for j in range(n_cols):
+                v = matrix[i, j]
+                grad[i, j * N:(j + 1) * N] = np.linspace(v[0], max(v), N)
+        ax.imshow(grad, aspect="auto", vmin=vmin, vmax=vmax,
+                  extent=[-0.5, n_cols - 0.5, n_rows - 0.5, -0.5])
+        # cell separators
+        for j in range(1, n_cols):
+            ax.axvline(x=j - 0.5, color="white", linewidth=0.5, alpha=0.6)
+        # text annotations
+        for i in range(n_rows):
+            for j in range(n_cols):
+                v = matrix[i, j]
+                brightness = (grad[i, j * N + N // 2] - vmin) / max(vmax - vmin, 1e-9)
+                color = "white" if brightness < 0.55 else "black"
+                ax.text(j, i, " /\n ".join(f"{x:.1f}" for x in v),
+                        ha="center", va="center", fontsize=6, color=color)
+    else:
+        ax.imshow(matrix, aspect="auto")
+        for i in range(n_rows):
+            for j in range(n_cols):
+                ax.text(j, i, f"{matrix[i, j]:.1f}", ha="center", va="center", fontsize=8)
+
+    ax.set_xticks(np.arange(n_cols))
+    ax.set_yticks(np.arange(n_rows))
     ax.set_xticklabels(x_labels, rotation=45, ha="right")
     ax.set_yticklabels(y_labels)
     ax.set_xlabel("Tasks")
     ax.set_ylabel("Models")
     ax.set_title(title)
-    # annotate
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
-            ax.text(j, i, f"{matrix[i, j]:.1f}", ha="center", va="center", fontsize=8)
     fig.tight_layout()
 
     if jupyter_plot:
@@ -143,7 +171,16 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
                          model_names: Sequence[str],
                          task_names: Sequence[str],
                          out_dir: str = "accuracy_viz",
-                         jupyter_plot: bool = True):
+                         jupyter_plot: bool = True,
+                         for_each_task_plot: bool = False, 
+                         each_task_heatmap: bool = False,
+                         modal_task_by_models_plot: bool = True, # on x axis: averaged across modality (3 columns) + averaged across tasks (3columns), on y axis for each model
+                         difficulty_task_by_models_plot: bool = False, # on x axis: combination of modalities and users, on y axis for each model
+                         plot_1: bool = False,
+                         plot_2: bool = False,
+                         plot_3: bool = False,
+                         plot_4: bool = False,
+                         ):
     """Create visualizations and a CSV summary.
 
     Returns
@@ -203,24 +240,42 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
     
     print("   difficulty_means  ", difficulty_means)
     
-    plot_heatmap(np.array(difficulty_means), a_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfcly_group.pdf", jupyter_plot)
-    plot_heatmap(np.array(modality_means), b_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_mdlt_group.pdf", jupyter_plot)
-    if jupyter_plot:
-        ipt.show()
-    else:
-        ipt.delete()
-    plot_heatmap(np.array(task_means), c_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_task_group.pdf", jupyter_plot)
+
+    if plot_1:
+        print("plot 1")
+        plot_heatmap(np.array(difficulty_means), a_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfcly_group.pdf", jupyter_plot)
     
-    plot_heatmap(np.hstack([np.array(task_means), np.array(modality_means)]), np.hstack([np.array(c_idxs), np.array(b_idxs)]), models, "Test Accuracy (%)", out_path / "heatmap_test_mdltandtask_group.pdf", jupyter_plot)
+        if jupyter_plot:
+            ipt.show()
+        else:
+            ipt.delete()
+
+    if plot_2:
+        print("plot 2")
+        plot_heatmap(np.array(modality_means), b_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_mdlt_group.pdf", jupyter_plot)
     
-    plot_heatmap(np.array(diff_mod_means), d_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfclt_task_group.pdf", jupyter_plot)
-    if jupyter_plot:
-        ipt.show()
-    else:
-        ipt.delete()
+        if jupyter_plot:
+            ipt.show()
+        else:
+            ipt.delete()
+
+    if plot_3:
+        print("plot 3")
+        plot_heatmap(np.array(task_means), c_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_task_group.pdf", jupyter_plot)
+    
+    if modal_task_by_models_plot:
+        print("plot 4")
+        plot_heatmap(np.hstack([np.array(task_means), np.array(modality_means)]), np.hstack([np.array(c_idxs), np.array(b_idxs)]), models, "Test Accuracy (%)", out_path / "heatmap_test_mdltandtask_group.pdf", jupyter_plot)
+    
+    if difficulty_task_by_models_plot:
+        print("plot diff and task")
+        plot_heatmap(np.array(diff_mod_means), d_idxs, models, "Test Accuracy (%)", out_path / "heatmap_test_dfclt_task_group.pdf", jupyter_plot)
+        if jupyter_plot:
+            ipt.show()
+        else:
+            ipt.delete()
 
     # Summary DataFrame
-
     cols = pd.MultiIndex.from_product([["Train", "Test"], tasks], names=["Split", "Task"])
     data = np.concatenate([train, test], axis=1)  # (n_models, 2*n_tasks)
     df = pd.DataFrame(data, index=models, columns=cols)
@@ -229,46 +284,139 @@ def visualize_accuracies(train_2d: Sequence[Sequence[float]],
     df.to_csv(csv_path)
 
     # Heatmaps
-    plot_heatmap(train, tasks, models, "Train Accuracy (%)", out_path / "heatmap_train.pdf", jupyter_plot)
-    plot_heatmap(test, tasks, models, "Test Accuracy (%)", out_path / "heatmap_test.pdf", jupyter_plot)
-    # plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.pdf", jupyter_plot)
-    if jupyter_plot:
-        ipt.show()
-    else:
-        ipt.delete()
-
-    # Per-task grouped bars
-    for j, t in enumerate(tasks):
-        plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.pdf", jupyter_plot)
-        if jupyter_plot and j%4==3:
-            ipt.show()
-
-    if jupyter_plot:
-        ipt.show()
-    else:
-        ipt.delete()
-
-    # Per-model bars (test across tasks)
-    for i, m in enumerate(models):
-        plot_bars_per_model(test[i, :], tasks, m, "Test Accuracy by Task", out_path / f"per_model_test_{i:02d}_{_safe_name(m)}.pdf", jupyter_plot)
-        if jupyter_plot and i%4==3:
+    if each_task_heatmap:
+        print("plot 5 ")
+        plot_heatmap(train, tasks, models, "Train Accuracy (%)", out_path / "heatmap_train.pdf", jupyter_plot)
+        plot_heatmap(test, tasks, models, "Test Accuracy (%)", out_path / "heatmap_test.pdf", jupyter_plot)
+        # plot_heatmap(test - train, tasks, models, "Generalization Gap (Test - Train, pp)", out_path / "heatmap_gap.pdf", jupyter_plot)
+        if jupyter_plot:
             ipt.show()
         else:
             ipt.delete()
 
+    # Per-task grouped bars
+    if for_each_task_plot:
+        print("per grouped plot")
+        for j, t in enumerate(tasks):
+            plot_grouped_bars_per_task(train, test, models, t, j, out_path / f"grouped_{j:02d}_{_safe_name(t)}.pdf", jupyter_plot)
+            if jupyter_plot and j%4==3:
+                ipt.show()
+        if jupyter_plot:
+            ipt.show()
+        else:
+            ipt.delete()
+
+    # Per-model bars (test across tasks)
+    if plot_4:
+        print("per task plot")
+        for i, m in enumerate(models):
+            plot_bars_per_model(test[i, :], tasks, m, "Test Accuracy by Task", out_path / f"per_model_test_{i:02d}_{_safe_name(m)}.pdf", jupyter_plot)
+            if jupyter_plot and i%4==3:
+                ipt.show()
+            else:
+                ipt.delete()
 
     if jupyter_plot:
         ipt.show()
     else:
         ipt.delete()
 
-        # ZIP
-        zip_path = out_path.with_suffix(".zip")
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for pdf in sorted(out_path.glob("*.pdf")):
-                zf.write(pdf, arcname=pdf.name)
-        return {"out_dir": str(out_path), "zip_path": str(zip_path), "csv_path": str(csv_path)}
+    # ZIP
+    zip_path = out_path.with_suffix(".zip")
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for pdf in sorted(out_path.glob("*.pdf")):
+            zf.write(pdf, arcname=pdf.name)
+    return {"out_dir": str(out_path), "zip_path": str(zip_path), "csv_path": str(csv_path)}
 
 
+def _ensure_arrays_3d(train_3d, test_3d, model_names, task_names):
+    train = np.array(train_3d, dtype=float)
+    test = np.array(test_3d, dtype=float)
+    models = list(model_names)
+    tasks = list(task_names)
+
+    if train.shape != test.shape:
+        raise ValueError(f"Train/test shapes differ: {train.shape} vs {test.shape}")
+    if train.ndim != 3:
+        raise ValueError(f"Expected 3-D arrays (models, tasks, insertions). Got ndim={train.ndim}")
+    if not (1 <= train.shape[2] <= 3):
+        raise ValueError(f"Expected last dimension between 1 and 3 (insertion levels). Got {train.shape[2]}")
+
+    m, n, _ = train.shape
+    if len(models) == m and len(tasks) == n:
+        return train, test, models, tasks
+    if len(models) == n and len(tasks) == m:
+        return train.transpose(1, 0, 2), test.transpose(1, 0, 2), models, tasks
+
+    raise ValueError(
+        f"Could not align names with shape {train.shape}: "
+        f"model_names={len(models)}, task_names={len(tasks)}."
+    )
 
 
+def _group_means_3d(data_3d: np.ndarray, group: List[str]):
+    """Average data_3d (n_models, n_tasks, 3) over tasks within each group label.
+
+    Returns (n_models, n_groups, 3) and the sorted group-label list.
+    """
+    group_labels = None
+    result = []
+    for model_vals in data_3d:  # (n_tasks, 3)
+        per_ins = []
+        for ins in range(data_3d.shape[2]):
+            g_ = pd.Series(model_vals[:, ins]).groupby(group).mean()
+            if group_labels is None:
+                group_labels = g_.index.to_list()
+            per_ins.append(g_.to_list())
+        # per_ins: (3, n_groups) → transpose to (n_groups, 3)
+        result.append(np.array(per_ins).T)
+    return np.array(result), group_labels  # (n_models, n_groups, 3)
+
+
+def visualize_accuracies_3d(train_3d,
+                             test_3d,
+                             model_names,
+                             task_names,
+                             out_dir: str = "accuracy_viz",
+                             jupyter_plot: bool = True,
+                             modal_task_by_models_plot: bool = True,
+                             ):
+    """Variant of visualize_accuracies for 3-D accuracy arrays.
+
+    Parameters
+    ----------
+    train_3d / test_3d : array-like, shape (n_models, n_tasks, 3)
+        Last dimension encodes insertion level:
+          [0] no insertion, [1] 1-trajectory insertion, [2] 2-trajectory insertions.
+
+    Returns
+    -------
+    dict with keys 'out_dir' and 'zip_path'.
+    """
+    train, test, models, tasks = _ensure_arrays_3d(train_3d, test_3d, model_names, task_names)
+    out_path = _safe_dir(out_dir)
+
+    difficulty_group = [t.split(" ")[-1] for t in tasks]
+    modality_group   = [t.split(" ")[-2] for t in tasks]
+    task_group       = [" ".join(t.split(" ")[:-2]) for t in tasks]
+
+    task_means,     c_idxs = _group_means_3d(test, task_group)
+    modality_means, b_idxs = _group_means_3d(test, modality_group)
+
+    if modal_task_by_models_plot:
+        combined        = np.concatenate([task_means, modality_means], axis=1)
+        combined_labels = list(c_idxs) + list(b_idxs)
+        plot_heatmap(combined, combined_labels, models,
+                     "Test Accuracy (%) — no inj / 1-traj / 2-traj",
+                     out_path / "heatmap_test_mdltandtask_3d.pdf", jupyter_plot)
+
+    if jupyter_plot:
+        ipt.show()
+    else:
+        ipt.delete()
+
+    zip_path = out_path.with_suffix(".zip")
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for pdf in sorted(out_path.glob("*.pdf")):
+            zf.write(pdf, arcname=pdf.name)
+    return {"out_dir": str(out_path), "zip_path": str(zip_path)}

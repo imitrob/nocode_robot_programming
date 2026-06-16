@@ -9,6 +9,10 @@ import cv2 as cv
 import trajectory_data
 from nocode_robot_programming.task_graph.task_graph import TaskGraph
 from nocode_robot_programming.state_decision.utils import Filename, saved_img_processing
+from nocode_robot_programming.state_decision_dataset_prepare.trajectory_criteria import (
+    filter_trajectory_files,
+    sync_trajectory_criteria,
+)
 from nocode_robot_programming.jupyter_plot import show_gray_video_cuda, show_gray_video_cuda_captions, show_gray_video_cuda_captions_aligned
 from IPython.display import display, HTML
 import re
@@ -65,17 +69,61 @@ class TrajectoryDataset(TaskGraph, Dataset):
                     'img_feedback_flag','spiral_flag','risk_flag',
                     'safe_flag','novel_risk_flag','novel_safe_flag','tag']
 
-    def __init__(self, package_path: str | None = None, keys=None, print_index: bool = False):
-        """ package_path (str) = custom trajectory package path
+    def __init__(
+        self,
+        package_path: str | None = None,
+        keys=None,
+        print_index: bool = False,
+        # Temporary CSV criteria gate for manually excluding bad/corrupted .npz files.
+        criteria_csv: str | os.PathLike | None = None,
+        sync_criteria_csv: bool = True, # slows down
+        require_criteria_rows: bool = False,
+        print_criteria_report: bool = False,
+        use_criteria: frozenset[str] | set[str] | None = None,
+    ):
+        """ package_path (str) = custom trajectory package path.
+
+        The criteria_csv* arguments are a temporary/manual dataset cleanup gate:
+        sync a CSV, mark use=0 for corrupted trajectories, and load only use=1 rows.
         """
         if package_path is None:
             self.dir = os.path.join(trajectory_data.package_path, "trajectories")
         else:
             self.dir = package_path
-            
+
         self.files = sorted(glob.glob(os.path.join(self.dir, "*.npz")))
         if not self.files:
             raise FileNotFoundError(f"No .npz files found in {self.dir}")
+
+        # === TEMPORARY CSV TRAJECTORY CRITERIA GATE: BEGIN ===
+        # Remove this block plus the criteria_csv* __init__ args/imports to return
+        # TrajectoryDataset to plain "load every .npz in self.dir" behavior.
+        self.criteria_csv = None
+        self.criteria_report = None
+        if criteria_csv is not None:
+            criteria_path = Path(criteria_csv)
+            if not criteria_path.is_absolute():
+                criteria_path = Path(self.dir) / criteria_path
+            self.criteria_csv = criteria_path
+            if sync_criteria_csv:
+                sync_trajectory_criteria(criteria_path, self.files)
+            elif not criteria_path.exists():
+                raise FileNotFoundError(
+                    f"Trajectory criteria file {criteria_path} does not exist. "
+                    "Pass sync_criteria_csv=True once to create it."
+                )
+            self.files, self.criteria_report = filter_trajectory_files(
+                self.files,
+                criteria_path,
+                require_rows=require_criteria_rows,
+                use_criteria=use_criteria,
+            )
+            if not self.files:
+                raise ValueError(f"Trajectory criteria file {criteria_path} excluded every .npz file")
+            if print_criteria_report:
+                print(self.criteria_report)
+        # === TEMPORARY CSV TRAJECTORY CRITERIA GATE: END ===
+
         self.keys = keys or self.default_keys
 
         self._task_index = self._build_task_index()
@@ -547,7 +595,7 @@ class TrajectoryDataset(TaskGraph, Dataset):
         return warnings
 
 class ImageDatasetView(Dataset):
-    def __init__(self, X, Xt, y_int, y_names, y_cls):
+    def __init__(self, X, Xt, y_int, y_names, y_cls, y_file=None):
         super(ImageDatasetView, self).__init__()
         assert X.ndim == 3 and Xt.ndim == 1 and y_int.ndim == 1
         self.X = X.cuda() # X.shape = (samples, width, height)
@@ -555,6 +603,7 @@ class ImageDatasetView(Dataset):
         self.y_int = y_int.cuda() # y_int.shape = (samples, )
         self.y_names = y_names # len(y_names) = samples
         self.y_cls = y_cls # len(y_cls) = "number of skill variants - files"
+        self.y_file = y_file # list[str] len=samples, source file name per frame
     
     def timestep_range(self) -> dict[str, int | float]:
         """ gets timestep range of used dataset view images """
@@ -620,15 +669,20 @@ class ImageDatasetView(Dataset):
             captions.append(f"y={i},{name}")
         display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=captions, caption_fontsize=10))
 
-    def showcase_aligned(self, fps: int = 20, scale: int = 5):
+    def showcase_aligned(self, fps: int = 20, scale: int = 5, caption="label"):
         captions = []
-        for i,name in zip(self.y_int, self.y_names):
-            captions.append(f"y={i},{name}")
+        for j, (i, name) in enumerate(zip(self.y_int, self.y_names)):
+            file_tag = self.y_file[j] if self.y_file else name
+            if caption == "label":
+                captions.append(f"y={i},{name}")
+            elif caption == "file":
+                captions.append(file_tag)
+            else: raise Exception("caption not valid")
         display(show_gray_video_cuda_captions_aligned(
             self.X,
             fps=fps,
             scale=scale,
             captions=captions,
             Xt=self.Xt, # shape [T], ints
-            max_rows=10
+            max_rows=14
         ))
