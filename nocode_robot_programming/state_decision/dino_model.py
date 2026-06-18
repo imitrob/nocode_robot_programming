@@ -153,10 +153,15 @@ class DINOFeaturePresence:
         logits = self._score_logits(g.unsqueeze(0), self.prototypes)[0]  # [C]
         c = int(torch.argmax(logits).item())
 
+        # Diagnostics: keep the top class scores so callers can see the decision margin
+        # (a near-tie between two classes is what makes the argmax flicker frame-to-frame).
+        order = torch.argsort(logits, descending=True)[:3].tolist()
+        self.last_scores = [(self.y_cls[int(i)], float(logits[int(i)])) for i in order]
+
         if self.percentile_keep is not None and self.thresholds is not None: # enabled
             if logits[c] < self.thresholds[c]:
                 return "anomaly"
-        
+
         return self.y_cls[c]
 
     def predict_many(self, X: torch.Tensor) -> List[str]:

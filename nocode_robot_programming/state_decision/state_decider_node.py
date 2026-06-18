@@ -32,7 +32,8 @@ class StateDeciderNode(SpinningRosNode):
             model_factory = StateDeciderSIFT
         elif method == "DINO":
             from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresence
-            model_factory = DINOFeaturePresence
+            from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresenceConcat
+            model_factory = DINOFeaturePresenceConcat
         elif method == "AEGP":
             from nocode_robot_programming.state_decision.AEGP_model import AEGP
             model_factory = AEGP
@@ -162,7 +163,7 @@ class StateDeciderNode(SpinningRosNode):
 
 def main():
     parser = argparse.ArgumentParser(description="State Decider Node")
-    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/MANUAL', choices=["SIFT", "DINO", "AEGP", "MANUAL"], default="MANUAL")
+    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/MANUAL', choices=["SIFT", "DINO", "AEGP", "MANUAL"], default="DINO")
     parser.add_argument('--anomaly', action='store_true', help='Adds also anomaly model')
     args = parser.parse_args()
 
@@ -201,7 +202,7 @@ def main():
             is_stale = "img stale" in note
 
             fps = round(1.0 / (time.perf_counter() - t0))
-            status = f"t={node.timestep:3} | Target: {target_name}"
+            status = f"t={node.timestep:3} | play={node.part_name} | Target: {target_name}"
             if note:
                 status += f" [{note}]"
             status += f", {fps:3} smp/s"

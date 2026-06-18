@@ -36,17 +36,22 @@ class StateDeciderModelManager():
             model is always preferred when one is active.
         """
         predictions = []
+        fired = []
+        img = torch.tensor(image, dtype=torch.float32).cuda() / 255.0
         for model, min, max in self.models:
             if min <= timestep <= max: # valid model for this timestep
-                image = torch.tensor(image, dtype=torch.float32).cuda() / 255.0
-                predictions.append(model.predict(image, timestep))
+                predictions.append(model.predict(img, timestep))
+                fired.append(model)
 
         if len(predictions) == 0:
             return "continue", f"no model for t={timestep}"
-        elif len(predictions) > 1:
-            return predictions[0], f"multiple models for t={timestep}"
-        else:
-            return predictions[0], ""
+
+        # Diagnostics: surface the firing model's top class scores (the decision margin).
+        scores = getattr(fired[0], "last_scores", None)
+        note = " ".join(f"{n}={s:.3f}" for n, s in scores) if scores else ""
+        if len(predictions) > 1:
+            note = f"{note} | multiple models for t={timestep}" if note else f"multiple models for t={timestep}"
+        return predictions[0], note
 
     def manual_predict(self, node, timestep, task_name, part_name) -> str:
         if len(self.models) > 0:
