@@ -54,7 +54,12 @@ class StateDeciderManual(StateDeciderBase):
                 if ds_['start'] <= timestep <= ds_['end']:
                     options = ds_['relevant_parts']
                     break
-            assert options is not None, f"timestep {timestep} not link to any DS from ({ds})"
+            if options is None:
+                # No clustered decision-state window contains this timestep. Degrade to
+                # "continue" instead of crashing the predictor (was a hard assert), and
+                # log loudly so the mismatch is still visible.
+                print(f"[manual_predict WARNING] timestep {timestep} not linked to any DS from ({ds}); continuing", flush=True)
+                return "continue"
             return "manual_choose|" + "|".join(options)
         else:
             return "continue"

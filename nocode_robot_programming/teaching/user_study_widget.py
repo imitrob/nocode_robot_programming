@@ -254,6 +254,12 @@ def user_study_widget(lfd):
         style={"description_width": "80px"},
     )
 
+    localize_box_checkbox = widgets.Checkbox(
+        value=True,
+        description="Localize box (localize_box)",
+        indent=False,
+    )
+
     file_status_label = widgets.HTML(
         value="",
         layout=widgets.Layout(margin="4px 0px 0px 0px"),
@@ -286,6 +292,7 @@ def user_study_widget(lfd):
             person_text,
             modality_toggle,
             task_toggle,
+            localize_box_checkbox,
             file_status_label,
             matching_files_label,
             matching_files_actions,
@@ -473,7 +480,7 @@ def user_study_widget(lfd):
             lfd.execution_plot_out = plot_out
             lfd.ui_progress_callback = ui_progress_callback
 
-            lfd.play_skill(task_name, None, localize_box=False)
+            lfd.play_skill(task_name, "robothontestbed", localize_box=localize_box_checkbox.value)
             lfd.move_template_start()
             print(f"[play] Finished")
             

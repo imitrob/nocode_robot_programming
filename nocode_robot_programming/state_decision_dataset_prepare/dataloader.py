@@ -669,7 +669,7 @@ class ImageDatasetView(Dataset):
             captions.append(f"y={i},{name}")
         display(show_gray_video_cuda_captions(self.X, fps=fps, scale=scale, captions=captions, caption_fontsize=10))
 
-    def showcase_aligned(self, fps: int = 20, scale: int = 5, caption="label"):
+    def showcase_aligned(self, fps: int = 20, scale: int = 5, caption="label", rows=8):
         captions = []
         for j, (i, name) in enumerate(zip(self.y_int, self.y_names)):
             file_tag = self.y_file[j] if self.y_file else name
@@ -684,5 +684,5 @@ class ImageDatasetView(Dataset):
             scale=scale,
             captions=captions,
             Xt=self.Xt, # shape [T], ints
-            max_rows=14
+            max_rows=rows
         ))
