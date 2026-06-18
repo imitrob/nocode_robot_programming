@@ -30,10 +30,15 @@ class StateDeciderNode(SpinningRosNode):
         if method == "SIFT":
             from nocode_robot_programming.state_decision.SIFT_model import StateDeciderSIFT
             model_factory = StateDeciderSIFT
-        elif method == "DINO":
-            from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresence
+        elif method == "DINOconcat":
             from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresenceConcat
             model_factory = DINOFeaturePresenceConcat
+        elif method == "DINOmean":
+            from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresence
+            model_factory = DINOFeaturePresence
+        elif method == "DINOattn":
+            from nocode_robot_programming.state_decision.dino_model import DINOFeaturePresenceAttnGated
+            model_factory = DINOFeaturePresenceAttnGated
         elif method == "AEGP":
             from nocode_robot_programming.state_decision.AEGP_model import AEGP
             model_factory = AEGP
@@ -43,7 +48,7 @@ class StateDeciderNode(SpinningRosNode):
         else: raise Exception(f"Method '{method}' is not implemented!")
 
         self.method = method
-        self.model_manager = StateDeciderModelManager(model_factory)
+        self.model_manager = StateDeciderModelManager(model_factory, self.anomaly)
 
         self.create_service(StringService, "/state_decider_retrain", self.train_call, qos_profile=QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT), callback_group=self.callback_group)
         self.create_subscription(Image, "/modified_img", self.image_callback, 5)
@@ -163,7 +168,7 @@ class StateDeciderNode(SpinningRosNode):
 
 def main():
     parser = argparse.ArgumentParser(description="State Decider Node")
-    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/MANUAL', choices=["SIFT", "DINO", "AEGP", "MANUAL"], default="DINO")
+    parser.add_argument('--name_method', type=str, help='SIFT/DINO/AEGP/MANUAL', choices=["SIFT", "AEGP", "MANUAL", "DINOmean", "DINOconcat", "DINOattn"], default="DINOconcat")
     parser.add_argument('--anomaly', action='store_true', help='Adds also anomaly model')
     args = parser.parse_args()
 

@@ -1,16 +1,21 @@
 import torch
 
 class StateDeciderModelManager():
-    def __init__(self, modelfactory):
+    def __init__(self, modelfactory, anomaly=False):
         self.modelfactory = modelfactory
         self.models = []
+
+        if anomaly:
+            self.percentile_keep = 0.1
+        else:
+            self.percentile_keep = None
 
     def train(self, datasets, all_dataset):
         self.models = []
         
         print(f"Training {len(datasets)} model(s)...", flush=True)
         for i, single_DS_dataset in enumerate(datasets):
-            model = self.modelfactory()
+            model = self.modelfactory(percentile_keep=self.percentile_keep)
             model.train(X=single_DS_dataset.X, y=single_DS_dataset.y_int, y_cls=single_DS_dataset.y_cls)
             t = single_DS_dataset.timestep_range()
             self.models.append([model, t['min'], t['max']])
@@ -18,7 +23,7 @@ class StateDeciderModelManager():
 
         if all_dataset and all_dataset.n > 0:
             single_DS_dataset = all_dataset
-            model = self.modelfactory()
+            model = self.modelfactory(percentile_keep=self.percentile_keep)
             model.train(X=single_DS_dataset.X, y=single_DS_dataset.y_int, y_cls=single_DS_dataset.y_cls)
             t = single_DS_dataset.timestep_range()
             self.models.append([model, t['min'], t['max']])
