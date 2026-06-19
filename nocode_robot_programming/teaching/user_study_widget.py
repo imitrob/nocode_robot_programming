@@ -115,6 +115,37 @@ def choose_with_popup(options, title="Choose target", master=None):
 _busy = False
 
 def user_study_widget(lfd):
+    from skills_manager.ros_param_manager import (
+        get_remote_parameters, set_remote_parameters,
+    )
+
+    # Localizer offset pose lives in ROS parameters on the localizer node. We read
+    # it directly via the parameter service (no extra params declared, single fast
+    # get_parameters call). The pose present when the widget is first opened is
+    # treated as the "default": after a localization run the localizer overwrites
+    # these with the detected pose, and that overwritten pose is what a play uses
+    # when "Localize box" is unticked.
+    LOCALIZER_SERVER = "localizer_node"
+    OFFSET_PARAM_NAMES = [
+        "position_x", "position_y", "position_z",
+        "orientation_x", "orientation_y", "orientation_z", "orientation_w",
+    ]
+
+    def read_offset_pose():
+        """Current localizer offset pose, or None if the node/params are unreachable."""
+        try:
+            return get_remote_parameters(lfd, OFFSET_PARAM_NAMES, server=LOCALIZER_SERVER)
+        except Exception:
+            return None
+
+    def poses_equal(a, b, tol=1e-6):
+        if a is None or b is None:
+            return True  # can't compare → don't nag the user
+        return len(a) == len(b) and all(abs(x - y) <= tol for x, y in zip(a, b))
+
+    # Snapshot the default offset pose once, when the widget opens.
+    default_offset_pose = read_offset_pose()
+
     def single_run(handler):
         """Ignore clicks while handler is still running; disable button + input controls."""
         def wrapped(btn):
@@ -260,6 +291,28 @@ def user_study_widget(lfd):
         indent=False,
     )
 
+    btn_reset_offset = widgets.Button(
+        description="↺ Reset offset to default",
+        tooltip="Localizer offset differs from the default it had when this widget "
+                "was opened. Click to restore the default offset pose.",
+        button_style="warning",
+        layout=widgets.Layout(width="220px", display="none"),  # hidden until needed
+    )
+
+    localize_box_row = widgets.HBox([localize_box_checkbox, btn_reset_offset])
+
+    def refresh_offset_reset_button():
+        """Show the reset button only when "Localize box" is disabled and the live
+        offset differs from the default. When localize is enabled the offset is
+        overwritten at the start of each run anyway, so resetting it makes no sense.
+        """
+        if default_offset_pose is None or localize_box_checkbox.value:
+            btn_reset_offset.layout.display = "none"
+            return
+        current = read_offset_pose()
+        differs = current is not None and not poses_equal(current, default_offset_pose)
+        btn_reset_offset.layout.display = "" if differs else "none"
+
     file_status_label = widgets.HTML(
         value="",
         layout=widgets.Layout(margin="4px 0px 0px 0px"),
@@ -292,7 +345,7 @@ def user_study_widget(lfd):
             person_text,
             modality_toggle,
             task_toggle,
-            localize_box_checkbox,
+            localize_box_row,
             file_status_label,
             matching_files_label,
             matching_files_actions,
@@ -483,6 +536,10 @@ def user_study_widget(lfd):
             lfd.play_skill(task_name, "robothontestbed", localize_box=localize_box_checkbox.value)
             lfd.move_template_start()
             print(f"[play] Finished")
+
+        # A localize-enabled play overwrites the offset params, so re-check whether
+        # the live offset now differs from the default.
+        refresh_offset_reset_button()
             
     @single_run
     def on_taskgraph_clicked(_):
@@ -504,15 +561,38 @@ def user_study_widget(lfd):
     btn_play_final.on_click(on_play_clicked)
     btn_taskgraph_final.on_click(on_taskgraph_clicked)
 
+    def on_reset_offset_clicked(_):
+        if default_offset_pose is None:
+            return
+        # Restore the default localizer params...
+        set_remote_parameters(
+            lfd, OFFSET_PARAM_NAMES, list(default_offset_pose),
+            server=LOCALIZER_SERVER,
+        )
+        # ...but the params alone are only ever read inside compute_final_transform(),
+        # which runs only when localize_box is enabled. With localize disabled, play
+        # reuses the cached lfd.final_transform from the last localization. So clear it
+        # here too — None means "no offset", i.e. play the trajectory as recorded.
+        lfd.final_transform = None
+        refresh_offset_reset_button()
+
+    btn_reset_offset.on_click(on_reset_offset_clicked)
+
     def on_config_changed(change):
         update_task_status()
 
     person_text.observe(on_config_changed, names="value")
     modality_toggle.observe(on_config_changed, names="value")
     task_toggle.observe(on_config_changed, names="value")
+    # Unticking "Localize box" means the next play reuses the saved offset — surface
+    # the reset option if that saved offset differs from the default.
+    localize_box_checkbox.observe(
+        lambda change: refresh_offset_reset_button(), names="value"
+    )
 
     # Initial status
     update_task_status()
+    refresh_offset_reset_button()
 
     # Dashboard layout
     dashboard = widgets.VBox(
