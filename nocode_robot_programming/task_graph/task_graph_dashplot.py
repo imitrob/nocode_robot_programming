@@ -95,108 +95,6 @@ def build_task_graph(
     return nodes, edges, depths
 
 
-def build_topology_figure(
-    nodes: List[Dict],
-    edges: List[Tuple[int, int]],
-    depths: Dict[int, int],
-) -> go.Figure:
-    """ Graph 1: Topology view
-        - No timestep axis.
-        - Nodes float in space in a hierarchical left-to-right layout.
-        - Initial sample is on the left center; branches fan out to the right.
-    """
-    # Assign positions based on depth: x = depth, y spaced within each depth
-    depth_to_nodes: Dict[int, List[int]] = defaultdict(list)
-    for n in nodes:
-        nid = n["id"]
-        depth = depths.get(nid, 0)
-        depth_to_nodes[depth].append(nid)
-
-    for depth, ids in depth_to_nodes.items():
-        count = len(ids)
-        for j, nid in enumerate(ids):
-            # center them vertically around 0
-            y = (j - (count - 1) / 2.0) * 1.5
-            nodes[nid]["topo_x"] = depth  # root depth=0 => left side
-            nodes[nid]["topo_y"] = y
-
-    # Edges
-    edge_x = []
-    edge_y = []
-    for u, v in edges:
-        x0, y0 = nodes[u]["topo_x"], nodes[u]["topo_y"]
-        x1, y1 = nodes[v]["topo_x"], nodes[v]["topo_y"]
-        edge_x += [x0, x1, None]
-        edge_y += [y0, y1, None]
-
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        mode="lines",
-        line=dict(width=2, color="rgba(150,150,150,0.5)"),
-        hoverinfo="none",
-    )
-
-    # Nodes
-    node_x = [n["topo_x"] for n in nodes]
-    node_y = [n["topo_y"] for n in nodes]
-
-    hover_text = []
-    display_text = []
-    sizes = []
-
-    for n in nodes:
-        length = n["length"]
-        end_ts = n["offset"] + length if length is not None else None
-        trials = n["trials"]
-
-        ht = [
-            n["label"],
-            f"task={n['task']}",
-            f"offset={n['offset']}",
-            f"parent_offset={n['parent_offset']}",
-            f"trials={trials}",
-        ]
-        if length is not None:
-            ht.append(f"length={length}")
-            ht.append(f"ends_at={end_ts}")
-        hover_text.append("<br>".join(ht))
-
-        if trials > 0:
-            display_text.append(f"{n['offset']} (x{trials})")
-        else:
-            display_text.append(str(n["offset"]))
-
-        sizes.append(10 + 3 * trials)
-
-    node_trace = go.Scatter(
-        x=node_x,
-        y=node_y,
-        mode="markers+text",
-        text=display_text,
-        textposition="top center",
-        hovertext=hover_text,
-        hoverinfo="text",
-        marker=dict(
-            size=sizes,
-            color="cornflowerblue",
-            line=dict(width=1, color="black"),
-        ),
-    )
-
-    fig = go.Figure(data=[edge_trace, node_trace])
-    fig.update_layout(
-        title="Task Branch Graph – Topology View",
-        showlegend=False,
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        margin=dict(l=40, r=40, t=60, b=40),
-        plot_bgcolor="white",
-        hovermode="closest",
-    )
-    return fig
-
-
 def build_timeline_figure(
     nodes: List[Dict],
     edges: List[Tuple[int, int]],
@@ -363,48 +261,15 @@ def create_app(
 ) -> Dash:
     nodes, edges, depths = build_task_graph(filenames, length_lookup)
 
-    topo_fig = build_topology_figure(nodes, edges, depths)
     timeline_fig = build_timeline_figure(nodes, edges, depths)
 
     app = Dash(__name__)
     app.layout = html.Div(
         [
-            html.Div(
-                [
-                    # Left: smaller topology graph (~400x400)
-                    html.Div(
-                        [
-                            dcc.Graph(
-                                id="task-graph-topology",
-                                figure=topo_fig,
-                                style={"width": "100%", "height": "100%"},
-                            ),
-                        ],
-                        style={"width": "400px", "height": "400px"},
-                    ),
-
-                    # Right: larger timeline graph (~800x400)
-                    html.Div(
-                        [
-                            dcc.Graph(
-                                id="task-graph-timeline",
-                                figure=timeline_fig,
-                                style={"width": "100%", "height": "100%"},
-                            ),
-                        ],
-                        style={
-                            "width": "800px",
-                            "height": "400px",
-                            "marginLeft": "20px",
-                        },
-                    ),
-                ],
-                style={
-                    "display": "flex",
-                    "flexDirection": "row",
-                    "justifyContent": "center",
-                    "alignItems": "center",
-                },
+            dcc.Graph(
+                id="task-graph-timeline",
+                figure=timeline_fig,
+                style={"width": "100%", "height": "400px"},
             ),
         ],
         style={"maxWidth": "1300px", "margin": "0 auto"},

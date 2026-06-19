@@ -181,9 +181,6 @@ class TrajectoryDatasetEvaluationViewBuilder(TrajectoryDataset):
             if d_train is None:
                 continue
             
-            elif d_test is None:
-                d_test = d_train
-
             f = Filename(ds['relevant_parts'][0])
 
             datasets.append((d_train, d_test, f"{f.task_userstudy} {f.modality} {f.person}, window={e}, anomaly={anomaly}, train={len(train_file_names)}, test={len(test_file_names)}"))
