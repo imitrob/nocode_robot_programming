@@ -380,11 +380,21 @@ def user_study_widget(lfd):
         layout=widgets.Layout(width="250px"),
     )
 
+    btn_delete_last_play = widgets.Button(
+        description="Delete last play",
+        tooltip="Delete the trial(s) saved by the most recent play (use if that play was invalid)",
+        button_style="warning",
+        layout=widgets.Layout(width="250px"),
+    )
+
     teaching_box = widgets.VBox(
         [
             widgets.HTML(""),
             widgets.HBox(
                 [btn_final_record, btn_play_final, btn_taskgraph_final]
+            ),
+            widgets.HBox(
+                [btn_delete_last_play]
             ),
         ],
         layout=widgets.Layout(
@@ -557,9 +567,23 @@ def user_study_widget(lfd):
             loader.plot_task_graph(task_name)
             print(f"[task graph] Finished")
 
+    @single_run
+    def on_delete_last_play_clicked(_):
+        run_log = new_run_log("Delete last play", log_accordion)
+        with run_log:
+            removed = lfd.delete_last_play()
+            if removed:
+                print(f"[delete] removed {len(removed)} trial file(s):")
+                for name in removed:
+                    print(f"  - {name}")
+            else:
+                print("[delete] nothing to delete (no trial saved since the last play).")
+        update_task_status()
+
     btn_final_record.on_click(on_record_clicked)
     btn_play_final.on_click(on_play_clicked)
     btn_taskgraph_final.on_click(on_taskgraph_clicked)
+    btn_delete_last_play.on_click(on_delete_last_play_clicked)
 
     def on_reset_offset_clicked(_):
         if default_offset_pose is None:

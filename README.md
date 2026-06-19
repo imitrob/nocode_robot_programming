@@ -26,7 +26,12 @@ ROS2 installs the packages to build folder. Make a symbolic links to use materia
 ```
 ln -s ~/lfd_ws/src/franka_learning_from_demonstrations_ros2/trajectory_data/trajectories ~/lfd_ws/build/trajectory_data/trajectories
 ```
-Please remember to source the workspace in every terminal you open.
+Please remember to source the workspace in every terminal you open. A handy alias for `~/.bashrc`:
+
+```shell
+alias lfd='conda deactivate; conda activate gesturenlu2; source ~/lfd_ws/install/setup.bash; [ -f /etc/udev/rules.d/99-realsense-no-suspend.rules ] || { echo '\''ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="8086", TEST=="power/control", ATTR{power/control}="on"'\'' | sudo tee /etc/udev/rules.d/99-realsense-no-suspend.rules && sudo udevadm control --reload && sudo udevadm trigger; }'
+```
+- Disables RealSense autosuspend, please check idVendor is correct. 
 
 I use and launch VSCode with sourced ROS env:
 
