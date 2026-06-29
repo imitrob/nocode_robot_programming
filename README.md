@@ -12,7 +12,7 @@ Teaching probing task: Task-graph with three skill variants:
 ```
 mkdir -p lfd_ws/src
 cd lfd_ws/src
-git clone https://github.com/imitrob/franka_learning_from_demonstrations_ros2 -b program
+git clone https://github.com/imitrob/franka_learning_from_demonstrations_ros2
 git clone https://github.com/imitrob/nocode_robot_programming.git
 
 conda env create -f nocode_robot_programming/environment.yml
