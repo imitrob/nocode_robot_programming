@@ -33,14 +33,9 @@ alias lfd='conda deactivate; conda activate gesturenlu2; source ~/lfd_ws/install
 ```
 - Disables RealSense autosuspend, please check idVendor is correct. 
 
-I use and launch VSCode with sourced ROS env:
-
-```
-source install/setup.bash
-code src/
-```
-
 ## Notebooks
+
+Launch VSCode while sourcing ROS env first: `source install/setup.bash; code src/`
 
 1. [Preparation notebook](tests/00_robot_check.ipynb): See the robot & gripper moving
 2. [Teaching and Execution](tests/01_user_study.ipynb): User-study dashboard
@@ -67,10 +62,4 @@ folder. The notebook creates/syncs this file with columns
 trajectory.
 
 
-## Notes:
 
-- In teaching, state decider is trained once before task execution. 
-
-## TODOs:
-
-- [ ] This repo uses `program` branch `franka_learning_from_demonstration_ros2`: I should do pull request.
